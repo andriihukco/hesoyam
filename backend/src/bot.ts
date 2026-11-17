@@ -59,6 +59,7 @@ export interface ChatLine {
 }
 
 interface ActivityLine {
+  id?: number;
   ts: number;
   level: 'info' | 'warn' | 'trade';
   text: string;
@@ -95,6 +96,7 @@ export class Bot extends EventEmitter {
 
   constructor(private db: Db) {
     super();
+    this.activity = db.activity({ limit: 200 });
     const saved = db.getSetting<Partial<Strategy>>('strategy');
     const merged = StrategySchema.safeParse({ ...DEFAULT_STRATEGY, ...saved });
     this.strategy = merged.success ? merged.data : DEFAULT_STRATEGY;
@@ -699,6 +701,14 @@ export class Bot extends EventEmitter {
     this.changed();
   }
 
+  allTimeStats() {
+    return { mode: this.mode, ...this.db.allTimeStats(this.mode) };
+  }
+
+  activityHistory(opts: { before?: number; limit?: number; q?: string; level?: string }) {
+    return this.db.activity(opts);
+  }
+
   resetPaper() {
     if (this.db.openPositions().length) throw new Error('close open positions first');
     this.db.clearMode('paper');
@@ -714,7 +724,14 @@ export class Bot extends EventEmitter {
 
   private note(level: ActivityLine['level'], text: string) {
     log(level, text);
-    this.activity.unshift({ ts: Date.now(), level, text });
+    const ts = Date.now();
+    let id: number | undefined;
+    try {
+      id = this.db.addActivity(ts, level, text);
+    } catch {
+      /* keep running if the log write fails */
+    }
+    this.activity.unshift({ id, ts, level, text });
     if (this.activity.length > 200) this.activity.length = 200;
   }
 
@@ -756,6 +773,7 @@ export class Bot extends EventEmitter {
       activity: this.activity.slice(0, 80),
       chats: this.chats.slice(0, 150),
       stats: { today, all },
+      activityTotal: this.db.activityCount(),
       serverTime: Date.now(),
     };
   }

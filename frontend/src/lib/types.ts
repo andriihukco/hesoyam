@@ -33,7 +33,17 @@ export interface PositionDetail {
   position: Position; trades: Trade[]; ticks: { ts: number; price: number }[];
   rules: { hardStopLossPct: number; trailingStopPct: number; takeProfitLadder: Ladder[] } | null; serverTime: number;
 }
-export interface Activity { ts: number; level: string; text: string }
+export interface Activity { id?: number; ts: number; level: string; text: string }
+export interface TradeRef { id: number; symbol: string | null; mint: string; pnlSol: number; pnlPct: number; closedAt: number }
+export interface AllTimeStats {
+  mode: string; count: number; wins: number; losses: number; winRate: number;
+  pnlSol: number; grossWinSol: number; grossLossSol: number; profitFactor: number | null;
+  avgWinSol: number; avgLossSol: number; expectancySol: number; avgPnlPct: number;
+  biggestWin: TradeRef | null; biggestLoss: TradeRef | null; bestPct: TradeRef | null; worstPct: TradeRef | null;
+  longestWinStreak: number; longestLossStreak: number; currentStreak: number;
+  kills: number; deaths: number; assists: number; kda: number;
+  avgHoldMs: number; maxDrawdownSol: number; firstAt: number | null; lastAt: number | null;
+}
 export interface Preset { id: string; name: string; description: string; builtIn: boolean; values: Partial<Strategy> }
 export interface PresetStat { preset: string | null; count: number; wins: number; pnl: number; avgPnlPct: number }
 export interface ArenaLane {
@@ -50,5 +60,5 @@ export interface Snapshot {
   telegram: { state: string; channels: { id: string; title: string; folder: string | null }[]; lastMessageAt: number | null; recoveredByPoll: number; error: string | null };
   strategy: Strategy; presets: Preset[]; activePresetId: string | null; presetStats: PresetStat[]; arena: Arena;
   positions: Position[]; closed: Position[]; signals: Signal[]; mentions: Mention[];
-  activity: Activity[]; chats: ChatLine[]; stats: { today: Stats; all: Stats }; serverTime: number;
+  activity: Activity[]; activityTotal: number; chats: ChatLine[]; stats: { today: Stats; all: Stats }; serverTime: number;
 }

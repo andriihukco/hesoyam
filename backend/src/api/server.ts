@@ -52,6 +52,18 @@ export async function buildServer(bot: Bot) {
   app.post('/api/positions/:id/sell', async (req) => run(() => bot.sellPosition(Number((req.params as { id: string }).id))));
   app.post('/api/panic-sell', async () => run(() => bot.panicSellAll()));
   app.post('/api/inject', async (req) => run(() => bot.inject(String((req.body as { text?: string })?.text ?? ''))));
+  app.get('/api/stats', async () => run(() => bot.allTimeStats()));
+  app.get('/api/activity', async (req) => {
+    const q = (req.query ?? {}) as Record<string, string | undefined>;
+    return run(() =>
+      bot.activityHistory({
+        before: q.before ? Number(q.before) : undefined,
+        limit: q.limit ? Number(q.limit) : undefined,
+        q: q.q?.trim() || undefined,
+        level: q.level && ['info', 'warn', 'trade'].includes(q.level) ? q.level : undefined,
+      }),
+    );
+  });
   app.post('/api/paper/reset', async () => run(() => bot.resetPaper()));
 
   // Push a full snapshot on change, throttled to 2/s, plus a heartbeat.

@@ -28,7 +28,63 @@ CREATE TABLE IF NOT EXISTS trades (
   route TEXT NOT NULL, sol REAL NOT NULL, tokens REAL NOT NULL, price REAL NOT NULL,
   fee_sol REAL NOT NULL, impact_pct REAL NOT NULL, slippage_pct REAL NOT NULL,
   latency_ms INTEGER NOT NULL, reason TEXT NOT NULL, ts INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, level TEXT NOT NULL, text TEXT NOT NULL);
 `;
+
+export interface ActivityRow { id: number; ts: number; level: 'info' | 'warn' | 'trade'; text: string }
+
+export interface TradeRef { id: number; symbol: string | null; mint: string; pnlSol: number; pnlPct: number; closedAt: number }
+export interface AllTimeStats {
+  count: number; wins: number; losses: number; winRate: number;
+  pnlSol: number; grossWinSol: number; grossLossSol: number; profitFactor: number | null;
+  avgWinSol: number; avgLossSol: number; expectancySol: number; avgPnlPct: number;
+  biggestWin: TradeRef | null; biggestLoss: TradeRef | null; bestPct: TradeRef | null; worstPct: TradeRef | null;
+  longestWinStreak: number; longestLossStreak: number; currentStreak: number;
+  /** K = wins, D = losses, A = take-profit ladder steps hit; KDA = (K + A) / max(1, D). */
+  kills: number; deaths: number; assists: number; kda: number;
+  avgHoldMs: number; maxDrawdownSol: number; firstAt: number | null; lastAt: number | null;
+}
+
+/** All-time results from closed positions, oldest first. Exported for tests. */
+export function computeStats(rows: { id: number; symbol: string | null; mint: string; cost: number; realized: number; ladder: number; opened: number; closed: number }[]): AllTimeStats {
+  let wins = 0, losses = 0, grossWin = 0, grossLoss = 0, pctSum = 0, holdSum = 0, assists = 0;
+  let run = 0, bestRun = 0, worstRun = 0, cum = 0, peak = 0, dd = 0;
+  let bigW: TradeRef | null = null, bigL: TradeRef | null = null, bestP: TradeRef | null = null, worstP: TradeRef | null = null;
+  for (const r of rows) {
+    const pnl = r.realized - r.cost;
+    const ref: TradeRef = { id: r.id, symbol: r.symbol, mint: r.mint, pnlSol: pnl, pnlPct: r.cost > 0 ? (pnl / r.cost) * 100 : 0, closedAt: r.closed };
+    pctSum += ref.pnlPct;
+    holdSum += Math.max(0, r.closed - r.opened);
+    assists += r.ladder;
+    if (pnl > 0) {
+      wins++; grossWin += pnl; run = run > 0 ? run + 1 : 1;
+    } else {
+      losses++; grossLoss += -pnl; run = run < 0 ? run - 1 : -1;
+    }
+    bestRun = Math.max(bestRun, run);
+    worstRun = Math.min(worstRun, run);
+    if (!bigW || pnl > bigW.pnlSol) bigW = ref;
+    if (!bigL || pnl < bigL.pnlSol) bigL = ref;
+    if (!bestP || ref.pnlPct > bestP.pnlPct) bestP = ref;
+    if (!worstP || ref.pnlPct < worstP.pnlPct) worstP = ref;
+    cum += pnl; peak = Math.max(peak, cum); dd = Math.max(dd, peak - cum);
+  }
+  const n = rows.length;
+  return {
+    count: n, wins, losses, winRate: n ? (wins / n) * 100 : 0,
+    pnlSol: grossWin - grossLoss, grossWinSol: grossWin, grossLossSol: grossLoss,
+    profitFactor: grossLoss > 0 ? grossWin / grossLoss : null,
+    avgWinSol: wins ? grossWin / wins : 0, avgLossSol: losses ? -grossLoss / losses : 0,
+    expectancySol: n ? (grossWin - grossLoss) / n : 0, avgPnlPct: n ? pctSum / n : 0,
+    biggestWin: bigW && bigW.pnlSol > 0 ? bigW : null, biggestLoss: bigL && bigL.pnlSol <= 0 ? bigL : null,
+    bestPct: bestP, worstPct: worstP,
+    longestWinStreak: bestRun, longestLossStreak: -worstRun, currentStreak: run,
+    kills: wins, deaths: losses, assists, kda: (wins + assists) / Math.max(1, losses),
+    avgHoldMs: n ? holdSum / n : 0, maxDrawdownSol: dd,
+    firstAt: n ? rows[0]!.closed : null, lastAt: n ? rows[n - 1]!.closed : null,
+  };
+}
 
 type Row = Record<string, any>;
 
@@ -208,6 +264,38 @@ export class Db {
         )
         .all(mode) as Row[]
     ).map((r) => ({ id: r.id, count: r.count, wins: r.wins, pnl: r.pnl, avgPnlPct: r.avgPnlPct, worstPct: r.worstPct, avgPeakPct: r.avgPeakPct }));
+  }
+
+  /** All-time stats over closed positions of a mode, every lane included. */
+  allTimeStats(mode: string): AllTimeStats {
+    const rows = this.sql
+      .prepare(
+        `SELECT id, symbol, mint, cost_sol AS cost, realized_sol AS realized, ladder_done AS ladder,
+           opened_at AS opened, closed_at AS closed
+         FROM positions WHERE status = 'closed' AND mode = ? ORDER BY closed_at, id`,
+      )
+      .all(mode) as Parameters<typeof computeStats>[0];
+    return computeStats(rows);
+  }
+
+  addActivity(ts: number, level: string, text: string): number {
+    return Number(this.sql.prepare('INSERT INTO activity(ts, level, text) VALUES(?,?,?)').run(ts, level, text).lastInsertRowid);
+  }
+
+  /** Activity newest first; `before` pages back by id; `q` filters by text. */
+  activity(opts: { before?: number; limit?: number; q?: string; level?: string } = {}): ActivityRow[] {
+    const where: string[] = [];
+    const args: (string | number)[] = [];
+    if (opts.before) { where.push('id < ?'); args.push(opts.before); }
+    if (opts.q) { where.push("text LIKE ? ESCAPE '\\'"); args.push(`%${opts.q.replace(/[\\%_]/g, (c) => '\\' + c)}%`); }
+    if (opts.level) { where.push('level = ?'); args.push(opts.level); }
+    const limit = Math.min(Math.max(opts.limit ?? 200, 1), 1000);
+    const sql = `SELECT id, ts, level, text FROM activity${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT ?`;
+    return this.sql.prepare(sql).all(...args, limit) as unknown as ActivityRow[];
+  }
+
+  activityCount(): number {
+    return (this.sql.prepare('SELECT COUNT(*) AS n FROM activity').get() as Row).n;
   }
 
   addTrade(t: Trade): number {
