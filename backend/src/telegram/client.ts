@@ -13,9 +13,18 @@ export interface TgMessage {
   ts: number;
 }
 
+export interface TgFolder {
+  link: string;
+  /** Folder title once resolved; null until the link has been checked. */
+  title: string | null;
+  channels: number;
+  error: string | null;
+}
+
 export interface TgStatus {
   state: 'disabled' | 'connecting' | 'listening' | 'error';
   channels: { id: string; title: string; folder: string | null }[];
+  folders: TgFolder[];
   /** When the last message from a watched chat arrived (push or poll), ms epoch. */
   lastMessageAt: number | null;
   /** Messages recovered by polling that the push stream missed (a sign push updates stalled). */
@@ -53,16 +62,66 @@ export function folderSlug(link: string): string | null {
  * and emits `message` for every new post in a watched channel. Never sends messages.
  */
 export class TelegramScraper extends EventEmitter {
-  status: TgStatus = { state: 'disabled', channels: [], lastMessageAt: null, recoveredByPoll: 0, error: null };
+  status: TgStatus = { state: 'disabled', channels: [], folders: [], lastMessageAt: null, recoveredByPoll: 0, error: null };
   private client: TelegramClient | null = null;
   private watched = new Map<string, { title: string; folder: string | null }>(); // peerId -> channel
   private entities = new Map<string, Api.TypeChat | Api.TypeUser>(); // peerId -> entity, for polling
   private lastId = new Map<string, number>(); // peerId -> highest message id handled
   private pollTimer: NodeJS.Timeout | null = null;
   private polling = false;
+  /** Folder link -> peer ids it contributed, so removing a folder only drops its own chats. */
+  private folderPeers = new Map<string, Set<string>>();
+  private extraPeers = new Set<string>();
 
   constructor(private opts: TgOptions) {
     super();
+    this.status.folders = opts.folderLinks.map((link) => ({ link, title: null, channels: 0, error: null }));
+  }
+
+  /** Start watching a folder link now (when connected) and keep it in the list. */
+  async addFolder(link: string): Promise<TgFolder> {
+    link = link.trim();
+    if (!folderSlug(link)) throw new Error('Not a folder link. Use https://t.me/addlist/…');
+    if (this.opts.folderLinks.some((l) => folderSlug(l) === folderSlug(link))) throw new Error('Folder already added');
+    if (this.client && this.status.state === 'listening') {
+      // Throws on a bad or expired invite: nothing is saved and the row is dropped again.
+      await this.loadFolder(link).catch((e) => {
+        this.status.folders = this.status.folders.filter((f) => f.link !== link);
+        throw e;
+      });
+      await this.primePeers(this.folderPeers.get(link) ?? new Set());
+    }
+    this.opts.folderLinks.push(link);
+    const entry = this.status.folders.find((f) => f.link === link) ?? { link, title: null, channels: 0, error: null };
+    if (!this.status.folders.includes(entry)) this.status.folders.push(entry);
+    this.status.channels = this.channelList();
+    return entry;
+  }
+
+  /** Stop watching a folder's chats. Does not leave the channels on the Telegram account. */
+  removeFolder(link: string) {
+    const peers = this.folderPeers.get(link) ?? new Set<string>();
+    this.folderPeers.delete(link);
+    this.opts.folderLinks = this.opts.folderLinks.filter((l) => l !== link);
+    this.status.folders = this.status.folders.filter((f) => f.link !== link);
+    for (const id of peers) {
+      const stillUsed = this.extraPeers.has(id) || [...this.folderPeers.values()].some((s) => s.has(id));
+      if (stillUsed) {
+        // Keep the chat, labelled with a folder that still holds it.
+        const other = [...this.folderPeers].find(([, s]) => s.has(id));
+        const w = this.watched.get(id);
+        if (w) w.folder = other ? (this.status.folders.find((f) => f.link === other[0])?.title ?? w.folder) : null;
+        continue;
+      }
+      this.watched.delete(id);
+      this.entities.delete(id);
+      this.lastId.delete(id);
+    }
+    this.status.channels = this.channelList();
+  }
+
+  folderLinks() {
+    return [...this.opts.folderLinks];
   }
 
   async start() {
@@ -83,7 +142,10 @@ export class TelegramScraper extends EventEmitter {
       await this.client.connect();
       if (!(await this.client.checkAuthorization())) throw new Error('Session not authorized. Run npm run tg:login');
 
-      for (const link of this.opts.folderLinks) await this.loadFolder(link);
+      for (const link of this.opts.folderLinks) {
+        // One bad or expired link must not stop the others from loading.
+        await this.loadFolder(link).catch((e) => log('telegram', `folder ${link}: ${errMsg(e)}`));
+      }
       for (const ch of this.opts.extraChannels) await this.loadChannel(ch);
 
       this.client.addEventHandler((e: NewMessageEvent) => void this.onMessage(e), new NewMessage({}));
@@ -106,11 +168,19 @@ export class TelegramScraper extends EventEmitter {
     return [...this.watched].map(([id, c]) => ({ id, ...c }));
   }
 
-  private addPeer(chat: Api.TypeChat | Api.TypeUser, folder: string | null) {
-    const id = utils.getPeerId(chat as never);
+  private addPeer(chat: Api.TypeChat | Api.TypeUser, folder: string | null): string {
+    const id = String(utils.getPeerId(chat as never));
     const title = 'title' in chat && chat.title ? chat.title : 'username' in chat && chat.username ? chat.username : id;
-    this.watched.set(String(id), { title: String(title), folder });
-    this.entities.set(String(id), chat);
+    // A chat already watched via another folder keeps its first label.
+    this.watched.set(id, { title: String(title), folder: this.watched.get(id)?.folder ?? folder });
+    this.entities.set(id, chat);
+    return id;
+  }
+
+  private setFolderStatus(link: string, patch: Partial<TgFolder>) {
+    let f = this.status.folders.find((x) => x.link === link);
+    if (!f) this.status.folders.push((f = { link, title: null, channels: 0, error: null }));
+    Object.assign(f, patch);
   }
 
   /** Name of one of the user's own folders (dialog filters) by id; null if not found. */
@@ -128,21 +198,30 @@ export class TelegramScraper extends EventEmitter {
   private async loadFolder(link: string) {
     const slug = folderSlug(link);
     if (!slug || !this.client) {
-      log('telegram', 'bad folder link', link);
-      return;
+      this.setFolderStatus(link, { error: 'Not a folder link' });
+      throw new Error('Not a folder link');
     }
-    const invite = await this.client.invoke(new Api.chatlists.CheckChatlistInvite({ slug }));
-    if (invite instanceof Api.chatlists.ChatlistInviteAlready) {
-      // Already in the folder: watch joined chats; join missing ones if allowed.
-      const folder = (await this.folderTitle(invite.filterId)) ?? slug;
-      for (const c of invite.chats) this.addPeer(c, folder);
-      if (this.opts.autoJoin && invite.missingPeers.length) {
-        await this.join(slug, invite.missingPeers);
+    try {
+      const invite = await this.client.invoke(new Api.chatlists.CheckChatlistInvite({ slug }));
+      const peers = new Set<string>();
+      let folder: string;
+      if (invite instanceof Api.chatlists.ChatlistInviteAlready) {
+        // Already in the folder: watch joined chats; join missing ones if allowed.
+        folder = (await this.folderTitle(invite.filterId)) ?? slug;
+        for (const c of invite.chats) peers.add(this.addPeer(c, folder));
+        if (this.opts.autoJoin && invite.missingPeers.length) {
+          await this.join(slug, invite.missingPeers);
+        }
+      } else {
+        folder = textOf((invite as any).title) ?? slug;
+        for (const c of invite.chats) peers.add(this.addPeer(c, folder));
+        if (this.opts.autoJoin && invite.peers.length) await this.join(slug, invite.peers);
       }
-    } else {
-      const folder = textOf((invite as any).title) ?? slug;
-      for (const c of invite.chats) this.addPeer(c, folder);
-      if (this.opts.autoJoin && invite.peers.length) await this.join(slug, invite.peers);
+      this.folderPeers.set(link, peers);
+      this.setFolderStatus(link, { title: folder, channels: peers.size, error: null });
+    } catch (e) {
+      this.setFolderStatus(link, { error: errMsg(e) });
+      throw e;
     }
   }
 
@@ -161,7 +240,7 @@ export class TelegramScraper extends EventEmitter {
     if (!this.client) return;
     try {
       const entity = await this.client.getEntity(ref.replace(/^https?:\/\/t\.me\//, '').replace(/^@/, ''));
-      this.addPeer(entity as Api.TypeChat, null);
+      this.extraPeers.add(this.addPeer(entity as Api.TypeChat, null));
     } catch (e) {
       log('telegram', `cannot resolve ${ref}: ${errMsg(e)}`);
     }
@@ -191,7 +270,13 @@ export class TelegramScraper extends EventEmitter {
 
   /** Remember each chat's newest message id at start, so polling only picks up new messages. */
   private async primePoll() {
-    for (const [id, entity] of this.entities) {
+    await this.primePeers(new Set(this.entities.keys()));
+  }
+
+  private async primePeers(ids: Set<string>) {
+    for (const id of ids) {
+      const entity = this.entities.get(id);
+      if (!entity || this.lastId.has(id)) continue;
       try {
         const [m] = await this.client!.getMessages(entity, { limit: 1 });
         if (m) this.lastId.set(id, Math.max(this.lastId.get(id) ?? 0, m.id));
@@ -211,7 +296,9 @@ export class TelegramScraper extends EventEmitter {
     this.polling = true;
     try {
       for (const [id, entity] of this.entities) {
-        const minId = this.lastId.get(id) ?? 0;
+        // Not primed yet (folder just added): polling from 0 would replay old messages as new.
+        if (!this.lastId.has(id)) continue;
+        const minId = this.lastId.get(id)!;
         try {
           const msgs = await this.client.getMessages(entity, { minId, limit: 20 });
           for (const m of [...msgs].reverse()) if (m instanceof Api.Message) this.handle(id, m, true);

@@ -4,6 +4,7 @@ import type { Snapshot, Strategy } from '../lib/types';
 import { Group, Segmented, Switch } from './ui';
 import { Presets } from './Presets';
 import { Arena } from './Arena';
+import { TelegramFolders } from './TelegramFolders';
 
 type NumKey = { [K in keyof Strategy]: Strategy[K] extends number ? K : never }[keyof Strategy];
 type Slider = { key: NumKey; label: string; min: number; max: number; step: number; unit: string; zeroOff?: boolean };
@@ -123,6 +124,8 @@ export function StrategyConfig({ s, onError }: { s: Snapshot; onError: (e: strin
             options={[{ value: 'paper', label: 'Test' }, { value: 'live', label: 'Live', title: 'Live engine not built yet (PLAN.md phase 7)' }]} />
         </div>
       </Group>
+
+      <TelegramFolders s={s} onError={onError} />
 
       <Group title="RPC" footer="Public RPC is rate-limited; holder checks fall back to RugCheck.">
         <label className="flex items-center justify-between gap-3 px-4 py-2.5 text-[15px]">

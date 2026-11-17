@@ -43,7 +43,7 @@ export function AlphaLog({ s, onError }: { s: Snapshot; onError: (e: string) => 
           ]}
         />
       </div>
-      {tab === 'activity' ? <ActivityList s={s} /> : tab === 'chats' ? <Chats s={s} /> : (<>
+      {tab === 'activity' ? <ActivityList s={s} /> : tab === 'chats' ? <Chats s={s} onError={onError} /> : (<>
       <form
         className="flex gap-2 border-b border-sep p-3"
         onSubmit={(e) => {

@@ -126,7 +126,8 @@ export class Bot extends EventEmitter {
     );
     this.tg = new TelegramScraper({
       apiId: env.TG_API_ID, apiHash: env.TG_API_HASH, session: env.TG_SESSION,
-      folderLinks: env.folderLinks, extraChannels: env.extraChannels, autoJoin: env.TG_AUTO_JOIN,
+      // Links saved from the dashboard win; .env only seeds the list on first run.
+      folderLinks: [...(db.getSetting<string[]>('tgFolderLinks') ?? env.folderLinks)], extraChannels: env.extraChannels, autoJoin: env.TG_AUTO_JOIN,
     });
   }
 
@@ -636,6 +637,28 @@ export class Bot extends EventEmitter {
     this.db.setSetting('strategy', next);
     this.note('info', 'strategy updated');
     this.changed();
+  }
+
+  // ---------- telegram folders ----------
+
+  async addTelegramFolder(link: string) {
+    const f = await this.tg.addFolder(link);
+    this.db.setSetting('tgFolderLinks', this.tg.folderLinks());
+    this.note('info', `telegram folder added: ${f.title ?? f.link}${f.title ? ` (${f.channels} chats)` : ''}`);
+    this.changed();
+    return f;
+  }
+
+  removeTelegramFolder(link: string) {
+    this.tg.removeFolder(link);
+    this.db.setSetting('tgFolderLinks', this.tg.folderLinks());
+    this.note('info', `telegram folder removed: ${link}`);
+    this.changed();
+  }
+
+  /** What the bot knows about one token, for the chart sheet opened from Chats. */
+  coinInfo(mint: string) {
+    return { signal: this.db.getSignal(mint) ?? null, positionId: this.db.latestPositionFor(mint)?.id ?? null };
   }
 
   // ---------- presets ----------

@@ -64,6 +64,9 @@ export async function buildServer(bot: Bot) {
       }),
     );
   });
+  app.post('/api/telegram/folders', async (req) => run(() => bot.addTelegramFolder(String((req.body as { link?: string })?.link ?? ''))));
+  app.delete('/api/telegram/folders', async (req) => run(() => bot.removeTelegramFolder(String((req.body as { link?: string })?.link ?? ''))));
+  app.get('/api/coin/:mint', async (req) => run(() => bot.coinInfo((req.params as { mint: string }).mint)));
   app.post('/api/paper/reset', async () => run(() => bot.resetPaper()));
 
   // Push a full snapshot on change, throttled to 2/s, plus a heartbeat.

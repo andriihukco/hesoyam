@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { ago, short } from '../lib/api';
 import type { ChatLine, Snapshot } from '../lib/types';
 import { Segmented } from './ui';
+import { CoinSheet } from './CoinSheet';
 
 const tone: Record<string, string> = {
   buy: 'bg-pos-solid/15 text-pos',
@@ -12,7 +13,8 @@ const tone: Record<string, string> = {
 };
 
 /** Live feed of every message in watched chats, with the contract addresses found in each. */
-export function Chats({ s }: { s: Snapshot }) {
+export function Chats({ s, onError }: { s: Snapshot; onError: (e: string) => void }) {
+  const [coin, setCoin] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'ca'>('all');
   const [folder, setFolder] = useState<string>('*');
   const decisions = useMemo(() => new Map(s.signals.map((x) => [x.mint, x.decision])), [s.signals]);
@@ -38,7 +40,7 @@ export function Chats({ s }: { s: Snapshot }) {
         )}
       </div>
       <div className="scroll-y min-h-0 flex-1">
-        {rows.length ? rows.map((c) => <ChatRow key={c.id} c={c} now={s.serverTime} decisions={decisions} />) : (
+        {rows.length ? rows.map((c) => <ChatRow key={c.id} c={c} now={s.serverTime} decisions={decisions} onCoin={setCoin} />) : (
           <p className="px-4 py-10 text-center text-[13px] text-label-2">
             {s.telegram.state === 'listening'
               ? 'Waiting for new messages. Only messages since the bot started are shown; they are kept in memory, not saved.'
@@ -46,11 +48,12 @@ export function Chats({ s }: { s: Snapshot }) {
           </p>
         )}
       </div>
+      {coin && <CoinSheet mint={coin} s={s} onClose={() => setCoin(null)} onError={onError} />}
     </>
   );
 }
 
-function ChatRow({ c, now, decisions }: { c: ChatLine; now: number; decisions: Map<string, string> }) {
+function ChatRow({ c, now, decisions, onCoin }: { c: ChatLine; now: number; decisions: Map<string, string>; onCoin: (mint: string) => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="row-sep px-4 py-2 text-[13px]">
@@ -70,8 +73,8 @@ function ChatRow({ c, now, decisions }: { c: ChatLine; now: number; decisions: M
             const label = ca.status === 'mint' ? (d ?? 'mint') : ca.status === 'not-mint' ? 'not a token' : ca.status;
             const cls = ca.status === 'mint' ? (tone[d ?? 'pending'] ?? tone.pending) : ca.status === 'error' ? tone.error : 'bg-fill text-label-3';
             return (
-              <button key={ca.address} title={`${ca.address} — click to copy`}
-                onClick={() => void navigator.clipboard?.writeText(ca.address)}
+              <button key={ca.address} title={ca.status === 'mint' ? `${ca.address} — open chart` : `${ca.address} — click to copy`}
+                onClick={() => (ca.status === 'mint' ? onCoin(ca.address) : void navigator.clipboard?.writeText(ca.address))}
                 className={`mono rounded-md px-1.5 py-0.5 text-[11px] ${cls}`}>
                 {short(ca.address)} · {label.toUpperCase()}
               </button>

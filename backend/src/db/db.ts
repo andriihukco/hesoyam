@@ -202,6 +202,12 @@ export class Db {
     return (this.sql.prepare("SELECT * FROM positions WHERE status = 'open' ORDER BY id").all() as Row[]).map(toPosition);
   }
 
+  /** Newest position (any status) for a mint, or undefined if it was never bought. */
+  latestPositionFor(mint: string): Position | undefined {
+    const r = this.sql.prepare('SELECT * FROM positions WHERE mint = ? ORDER BY id DESC LIMIT 1').get(mint) as Row | undefined;
+    return r ? toPosition(r) : undefined;
+  }
+
   position(id: number): Position | undefined {
     const r = this.sql.prepare('SELECT * FROM positions WHERE id = ?').get(id) as Row | undefined;
     return r ? toPosition(r) : undefined;

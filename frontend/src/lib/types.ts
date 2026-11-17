@@ -52,12 +52,13 @@ export interface ArenaLane {
 }
 export interface Arena { enabled: boolean; autoSelect: boolean; leader: { id: string; since: number } | null; minTrades: number; lanes: ArenaLane[] }
 export interface Stats { pnl: number; wins: number; count: number }
+export interface TgFolder { link: string; title: string | null; channels: number; error: string | null }
 export interface Snapshot {
   mode: 'paper' | 'live'; liveAvailable: boolean; killSwitch: boolean;
   wallet: { balanceSol: number; startingSol: number };
   rpc: { current: string; pingMs: number | null; options: { name: string; url: string }[] };
   feed: { source: string; connected: boolean; tracked: number };
-  telegram: { state: string; channels: { id: string; title: string; folder: string | null }[]; lastMessageAt: number | null; recoveredByPoll: number; error: string | null };
+  telegram: { state: string; channels: { id: string; title: string; folder: string | null }[]; folders: TgFolder[]; lastMessageAt: number | null; recoveredByPoll: number; error: string | null };
   strategy: Strategy; presets: Preset[]; activePresetId: string | null; presetStats: PresetStat[]; arena: Arena;
   positions: Position[]; closed: Position[]; signals: Signal[]; mentions: Mention[];
   activity: Activity[]; activityTotal: number; chats: ChatLine[]; stats: { today: Stats; all: Stats }; serverTime: number;
