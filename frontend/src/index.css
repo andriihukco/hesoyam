@@ -1,0 +1,193 @@
+@import "tailwindcss";
+
+/* iOS system palette. Light is default; dark via OS setting or the in-app switch. */
+:root {
+  color-scheme: light;
+  --bg: #f2f2f7;
+  --card: #ffffff;
+  --card-2: #f2f2f7;
+  --sep: rgba(60, 60, 67, 0.16);
+  --label: #000000;
+  --label-2: rgba(60, 60, 67, 0.62);
+  --label-3: rgba(60, 60, 67, 0.32);
+  --fill: rgba(120, 120, 128, 0.12);
+  --fill-2: rgba(120, 120, 128, 0.2);
+  --tint: #007aff;
+  --pos: #248a3d;
+  --pos-solid: #34c759;
+  --neg: #d70015;
+  --neg-solid: #ff3b30;
+  --warn: #c93400;
+  --warn-solid: #ff9500;
+  --thumb: #ffffff;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #000000;
+    --card: #1c1c1e;
+    --card-2: #2c2c2e;
+    --sep: rgba(84, 84, 88, 0.55);
+    --label: #ffffff;
+    --label-2: rgba(235, 235, 245, 0.6);
+    --label-3: rgba(235, 235, 245, 0.3);
+    --fill: rgba(120, 120, 128, 0.24);
+    --fill-2: rgba(120, 120, 128, 0.36);
+    --tint: #0a84ff;
+    --pos: #30d158;
+    --pos-solid: #30d158;
+    --neg: #ff453a;
+    --neg-solid: #ff453a;
+    --warn: #ff9f0a;
+    --warn-solid: #ff9f0a;
+    --thumb: #ffffff;
+    --shadow: none;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #000000;
+  --card: #1c1c1e;
+  --card-2: #2c2c2e;
+  --sep: rgba(84, 84, 88, 0.55);
+  --label: #ffffff;
+  --label-2: rgba(235, 235, 245, 0.6);
+  --label-3: rgba(235, 235, 245, 0.3);
+  --fill: rgba(120, 120, 128, 0.24);
+  --fill-2: rgba(120, 120, 128, 0.36);
+  --tint: #0a84ff;
+  --pos: #30d158;
+  --pos-solid: #30d158;
+  --neg: #ff453a;
+  --neg-solid: #ff453a;
+  --warn: #ff9f0a;
+  --warn-solid: #ff9f0a;
+  --thumb: #ffffff;
+  --shadow: none;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-card-2: var(--card-2);
+  --color-sep: var(--sep);
+  --color-label: var(--label);
+  --color-label-2: var(--label-2);
+  --color-label-3: var(--label-3);
+  --color-fill: var(--fill);
+  --color-fill-2: var(--fill-2);
+  --color-tint: var(--tint);
+  --color-pos: var(--pos);
+  --color-pos-solid: var(--pos-solid);
+  --color-neg: var(--neg);
+  --color-neg-solid: var(--neg-solid);
+  --color-warn: var(--warn);
+  --color-warn-solid: var(--warn-solid);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none; /* app, not a document: no pull-to-refresh or page rubber-band */
+}
+html, body {
+  background: var(--bg);
+  color: var(--label);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+body { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; letter-spacing: 0; }
+
+/* Grouped inset card */
+.card { background: var(--card); border-radius: 14px; box-shadow: var(--shadow); }
+.section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--label-2); padding: 0 16px 6px; }
+
+/* Buttons */
+.btn {
+  border-radius: 10px; padding: 7px 14px; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: opacity .15s, transform .1s, background-color .15s;
+}
+.btn:active:not(:disabled) { transform: scale(0.97); opacity: .8; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn-tinted { background: var(--fill); color: var(--tint); }
+.btn-filled { background: var(--tint); color: #fff; }
+.btn-danger { background: var(--neg-solid); color: #fff; }
+.btn-danger-tinted { background: color-mix(in srgb, var(--neg-solid) 15%, transparent); color: var(--neg); }
+.btn-sm { padding: 4px 10px; font-size: 13px; border-radius: 8px; }
+
+/* Segmented control */
+.seg { display: inline-flex; background: var(--fill); border-radius: 9px; padding: 2px; gap: 2px; }
+.seg button {
+  border-radius: 7px; padding: 4px 12px; font-size: 13px; font-weight: 500; color: var(--label); cursor: pointer;
+  transition: background-color .15s, box-shadow .15s;
+}
+.seg button[aria-pressed="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 0 0 .5px rgba(0,0,0,.04); font-weight: 600; }
+:root[data-theme="dark"] .seg button[aria-pressed="true"] { background: #636366; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .seg button[aria-pressed="true"] { background: #636366; } }
+
+/* iOS switch */
+.switch { position: relative; width: 51px; height: 31px; flex-shrink: 0; border-radius: 999px; background: var(--fill-2); transition: background-color .2s; cursor: pointer; }
+.switch[aria-checked="true"] { background: var(--pos-solid); }
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 999px;
+  background: var(--thumb); box-shadow: 0 3px 8px rgba(0,0,0,.15), 0 1px 1px rgba(0,0,0,.16); transition: transform .2s;
+}
+.switch[aria-checked="true"]::after { transform: translateX(20px); }
+
+/* Slider */
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: transparent; }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--tint) var(--p, 50%), var(--fill-2) var(--p, 50%)); }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 28px; height: 28px; margin-top: -12px; border-radius: 999px; background: #fff;
+  box-shadow: 0 0.5px 4px rgba(0,0,0,.12), 0 6px 13px rgba(0,0,0,.12);
+}
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--fill-2); }
+input[type="range"]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--tint); }
+input[type="range"]::-moz-range-thumb { width: 28px; height: 28px; border: 0; border-radius: 999px; background: #fff; box-shadow: 0 0.5px 4px rgba(0,0,0,.12), 0 6px 13px rgba(0,0,0,.12); }
+
+.field { background: var(--fill); border-radius: 10px; padding: 8px 12px; font-size: 15px; color: var(--label); outline: none; }
+.field::placeholder { color: var(--label-3); }
+.field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--tint) 45%, transparent); }
+
+.row-sep + .row-sep { border-top: 0.5px solid var(--sep); }
+.scroll-y { overflow-y: auto; overscroll-behavior: contain; }
+
+/* Controls: instant taps, no text selection or callout on long-press. Content text stays selectable. */
+button, a, label, summary, [role="button"], [role="switch"] {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* iOS zooms into inputs under 16px and never zooms back. */
+@media (pointer: coarse) {
+  input, textarea, select, .field { font-size: 16px; }
+}
+
+.seg-fill { display: flex; width: 100%; }
+.seg-fill button { flex: 1 1 0; min-width: 0; padding-left: 4px; padding-right: 4px; white-space: nowrap; }
+.seg button:active:not([aria-pressed="true"]) { background: var(--fill-2); }
+
+.icon-btn {
+  display: grid; place-items: center; width: 36px; height: 36px; border-radius: 999px;
+  background: var(--fill); color: var(--label); transition: transform .1s, background-color .15s;
+}
+.icon-btn:active { transform: scale(0.94); background: var(--fill-2); }
+
+.switch:disabled { opacity: .5; }
+.switch-danger[aria-checked="true"] { background: var(--neg-solid); }
+
+/* Touch targets: at least 44pt tall on touch screens. */
+@media (pointer: coarse) {
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 36px; }
+  .seg button { min-height: 32px; }
+}
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover:not(:disabled) { filter: brightness(1.06); }
+  .icon-btn:hover { background: var(--fill-2); }
+}

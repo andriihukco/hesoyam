@@ -1,0 +1,16 @@
+{
+  "name": "1mbot",
+  "private": true,
+  "type": "module",
+  "workspaces": ["backend", "frontend"],
+  "scripts": {
+    "dev": "concurrently -n api,ui -c cyan,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "start": "npm run build -w frontend && npm start -w backend",
+    "test": "npm test -w backend",
+    "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend",
+    "tg:login": "npm run tg:login -w backend"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7"
+  }
+}

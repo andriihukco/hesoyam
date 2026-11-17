@@ -1,0 +1,29 @@
+{
+  "name": "@1mbot/backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "tg:login": "NODE_OPTIONS=--no-warnings tsx scripts/tgLogin.ts"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.10",
+    "@fastify/websocket": "^11.3.7",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "1.98.4",
+    "fastify": "^5.12.8",
+    "qrcode": "^1.5.4",
+    "telegram": "^2.26.22",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/qrcode": "^1.5.6",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "vitest": "^4.0.0"
+  }
+}

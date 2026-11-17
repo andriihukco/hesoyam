@@ -1,0 +1,73 @@
+import { resolve } from 'node:path';
+import { z } from 'zod';
+
+export const ROOT_DIR = resolve(import.meta.dirname, '../../..');
+
+try {
+  process.loadEnvFile(resolve(ROOT_DIR, '.env'));
+} catch {
+  // no .env file: rely on process env and defaults
+}
+
+const emptyToUndef = (v: unknown) => (v === '' ? undefined : v);
+const bool = (def: boolean) =>
+  z.preprocess((v) => (v === undefined || v === '' ? def : String(v).toLowerCase() === 'true'), z.boolean());
+const opt = <T extends z.ZodType>(t: T) => z.preprocess(emptyToUndef, t.optional());
+
+const EnvSchema = z.object({
+  HOST: z.string().default('127.0.0.1'),
+  PORT: z.coerce.number().int().default(8787),
+  DASHBOARD_TOKEN: opt(z.string()),
+  DB_PATH: z.string().default('data/1mbot.sqlite'),
+  TG_API_ID: opt(z.coerce.number().int()),
+  TG_API_HASH: opt(z.string()),
+  TG_SESSION: opt(z.string()),
+  TG_FOLDER_LINKS: z.string().default(''),
+  TG_CHANNELS: z.string().default(''),
+  TG_AUTO_JOIN: bool(true),
+  RPC_ENDPOINTS: z.string().default('public=https://api.mainnet-beta.solana.com'),
+  PUMPPORTAL_WS_URL: z.string().default('wss://pumpportal.fun/api/data'),
+  /** Trade subscriptions need a funded PumpPortal key; without it the free RPC curve watcher is used. */
+  PUMPPORTAL_API_KEY: opt(z.string()),
+  JUPITER_API_URL: z.string().default('https://lite-api.jup.ag/swap/v1'),
+  JUPITER_API_KEY: opt(z.string()),
+  RUGCHECK_API_URL: z.string().default('https://api.rugcheck.xyz/v1'),
+  DEXSCREENER_API_URL: z.string().default('https://api.dexscreener.com'),
+  LIVE_TRADING_ENABLED: bool(false),
+});
+
+const parsed = EnvSchema.parse(process.env);
+
+export const env = {
+  ...parsed,
+  DB_PATH: resolve(ROOT_DIR, parsed.DB_PATH),
+  folderLinks: splitList(parsed.TG_FOLDER_LINKS),
+  extraChannels: splitList(parsed.TG_CHANNELS),
+  rpcEndpoints: parseRpcEndpoints(parsed.RPC_ENDPOINTS),
+};
+
+export function splitList(s: string): string[] {
+  return s.split(',').map((x) => x.trim()).filter(Boolean);
+}
+
+export function parseRpcEndpoints(s: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pair of splitList(s)) {
+    const i = pair.indexOf('=');
+    if (i <= 0) continue;
+    out[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+  }
+  if (Object.keys(out).length === 0) out.public = 'https://api.mainnet-beta.solana.com';
+  return out;
+}
+
+/** Hide API keys in RPC URLs (query or path) before showing them anywhere. */
+export function redactUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const hidden = u.pathname.length > 1 || u.search ? '/…' : '';
+    return `${u.protocol}//${u.host}${hidden}`;
+  } catch {
+    return '***';
+  }
+}
