@@ -1,3 +1,16 @@
+import { isSocialChannel } from '../social/types.js';
+
+/**
+ * Channel ids that count toward minChannels under a strategy's social rule.
+ * 'one' folds every X / Threads account into a single 'social' channel, so a wave of
+ * reposts cannot pass the filter on its own.
+ */
+export function countableChannels(ids: string[], mode: 'off' | 'one' | 'each'): string[] {
+  if (mode === 'each') return ids;
+  const tg = ids.filter((id) => !isSocialChannel(id));
+  return mode === 'one' && tg.length < ids.length ? [...tg, 'social'] : tg;
+}
+
 export interface AggregateResult {
   mint: string;
   /** Unique channels that mentioned the mint inside the window ending now. */

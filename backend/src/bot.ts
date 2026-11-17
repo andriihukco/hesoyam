@@ -14,7 +14,9 @@ import { MarketQuoter } from './market/quoter.js';
 import { dexPriceSol } from './market/dexPrice.js';
 import { authorityChecks, holderCheck, loadMint, rugcheck } from './risk/checks.js';
 import { momentum } from './risk/momentum.js';
-import { SignalAggregator } from './signals/aggregator.js';
+import { SignalAggregator, countableChannels } from './signals/aggregator.js';
+import { XSource } from './social/xSource.js';
+import { ThreadsSource } from './social/threadsSource.js';
 import { score } from './signals/scorer.js';
 import { entryChecks } from './signals/entry.js';
 import { extractCandidates, snippet } from './telegram/extract.js';
@@ -74,6 +76,8 @@ export class Bot extends EventEmitter {
   readonly feed: PriceFeed;
   readonly quoter: MarketQuoter;
   readonly tg: TelegramScraper;
+  readonly x: XSource;
+  readonly threads: ThreadsSource;
   readonly paper: PaperExecutor;
   private validator: MintValidator;
   private aggregator: SignalAggregator;
@@ -129,6 +133,10 @@ export class Bot extends EventEmitter {
       // Links saved from the dashboard win; .env only seeds the list on first run.
       folderLinks: [...(db.getSetting<string[]>('tgFolderLinks') ?? env.folderLinks)], extraChannels: env.extraChannels, autoJoin: env.TG_AUTO_JOIN,
     });
+    this.x = new XSource({ apiKey: env.X_API_KEY, apiUrl: env.X_API_URL, handles: env.xHandles, pollSec: env.X_POLL_SEC });
+    this.threads = new ThreadsSource({
+      accessToken: env.THREADS_ACCESS_TOKEN, apiUrl: env.THREADS_API_URL, handles: env.threadsHandles, keywords: env.threadsKeywords,
+    });
   }
 
   // ---------- lifecycle ----------
@@ -137,6 +145,9 @@ export class Bot extends EventEmitter {
     this.ws?.on('status', () => this.changed());
     this.feed.on('price', (mint: string, price: number | null) => price && void this.onPrice(mint, price));
     this.tg.on('message', (m: TgMessage) => void this.onTelegram(m));
+    // X and Threads posts use the same message shape and pipeline as Telegram.
+    this.x.on('message', (m: TgMessage) => void this.onTelegram(m));
+    this.threads.on('message', (m: TgMessage) => void this.onTelegram(m));
     this.ws?.start();
     for (const p of this.db.openPositions()) {
       this.feed.track(p.mint);
@@ -154,13 +165,15 @@ export class Bot extends EventEmitter {
     this.timers.push(setInterval(() => this.prune(), 30_000));
     void this.rpc.ping();
     this.note('info', `bot started in ${this.mode} mode, RPC ${this.rpc.name}, trade feed ${this.feed.sourceName}`);
-    await this.tg.start();
+    await Promise.all([this.tg.start(), this.x.start(), this.threads.start()]);
     this.changed();
   }
 
   async stop() {
     this.timers.forEach(clearInterval);
     this.ws?.stop();
+    this.x.stop();
+    this.threads.stop();
     await this.tg.stop();
   }
 
@@ -223,8 +236,10 @@ export class Bot extends EventEmitter {
     const due: { lane: Lane; n: number }[] = [];
     for (const lane of this.activeLanes()) {
       const win = lane.strategy.windowSec * 1000;
-      const inWin = this.aggregator.channels(mint, win, ts);
-      const isNew = !this.aggregator.channels(mint, win, ts, true).includes(channelId);
+      const mode = lane.strategy.socialMentions;
+      const inWin = countableChannels(this.aggregator.channels(mint, win, ts), mode);
+      // New = this mention raised the count (a social repost under 'one' or 'off' usually does not).
+      const isNew = inWin.length > countableChannels(this.aggregator.channels(mint, win, ts, true), mode).length;
       const enough = force || inWin.length >= lane.strategy.minChannels;
       const st = this.evalState.get(laneKey(lane.id, mint));
       if (enough && (isNew || force) && (st === undefined || st === 'soft')) {
@@ -664,7 +679,9 @@ export class Bot extends EventEmitter {
   // ---------- presets ----------
 
   private savedPresets(): Preset[] {
-    return this.db.getSetting<Preset[]>('presets') ?? [];
+    // Presets saved before a setting existed get its default, so they still match and run the same.
+    const base = presetValues(DEFAULT_STRATEGY);
+    return (this.db.getSetting<Preset[]>('presets') ?? []).map((p) => ({ ...p, values: { ...base, ...p.values } }));
   }
 
   presets(): Preset[] {
@@ -783,6 +800,7 @@ export class Bot extends EventEmitter {
       rpc: { current: this.rpc.name, pingMs: this.rpc.pingMs, options: this.rpc.list() },
       feed: { source: this.feed.sourceName, connected: this.feed.source.connected, tracked: this.feed.source.tracked },
       telegram: this.tg.status,
+      social: { x: this.x.status, threads: this.threads.status },
       strategy: this.strategy,
       presets: this.presets(),
       activePresetId: this.activePreset()?.id ?? null,

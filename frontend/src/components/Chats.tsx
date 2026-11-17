@@ -19,8 +19,12 @@ export function Chats({ s, onError }: { s: Snapshot; onError: (e: string) => voi
   const [folder, setFolder] = useState<string>('*');
   const decisions = useMemo(() => new Map(s.signals.map((x) => [x.mint, x.decision])), [s.signals]);
   const folders = useMemo(
-    () => [...new Set(s.telegram.channels.map((c) => c.folder ?? 'Channels'))],
-    [s.telegram.channels],
+    () => [
+      ...new Set(s.telegram.channels.map((c) => c.folder ?? 'Channels')),
+      ...(s.social.x.state !== 'disabled' ? ['X'] : []),
+      ...(s.social.threads.state !== 'disabled' ? ['Threads'] : []),
+    ],
+    [s.telegram.channels, s.social.x.state, s.social.threads.state],
   );
   const rows = s.chats.filter(
     (c) => (filter === 'all' || c.cas.some((x) => x.status === 'mint')) && (folder === '*' || (c.folder ?? 'Channels') === folder),
@@ -42,7 +46,7 @@ export function Chats({ s, onError }: { s: Snapshot; onError: (e: string) => voi
       <div className="scroll-y min-h-0 flex-1">
         {rows.length ? rows.map((c) => <ChatRow key={c.id} c={c} now={s.serverTime} decisions={decisions} onCoin={setCoin} />) : (
           <p className="px-4 py-10 text-center text-[13px] text-label-2">
-            {s.telegram.state === 'listening'
+            {s.telegram.state === 'listening' || s.social.x.state === 'polling' || s.social.threads.state === 'polling'
               ? 'Waiting for new messages. Only messages since the bot started are shown; they are kept in memory, not saved.'
               : `Telegram is ${s.telegram.state}.`}
           </p>

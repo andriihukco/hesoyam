@@ -13,6 +13,11 @@ export const StrategySchema = z.object({
   // Signal filter
   minChannels: z.number().int().min(1).max(50),
   windowSec: z.number().int().min(1).max(3600),
+  /**
+   * How X / Threads mentions count toward minChannels: 'off' = shown only, never count;
+   * 'one' = all social accounts together count as one channel; 'each' = every account counts.
+   */
+  socialMentions: z.enum(['off', 'one', 'each']),
   minScore: z.number().min(0).max(100),
   // Entry timing (0 = off). Stops buying a token shilled again long after its first call.
   maxSignalAgeSec: z.number().int().min(0).max(86400),
@@ -55,6 +60,7 @@ export const DEFAULT_STRATEGY: Strategy = {
   maxSlippagePct: 15,
   minChannels: 2,
   windowSec: 30,
+  socialMentions: 'off',
   minScore: 70,
   maxSignalAgeSec: 0,
   maxRunupFromFirstPct: 0,
@@ -119,6 +125,13 @@ export const BUILT_IN_PRESETS: Preset[] = [
     description: 'The spec defaults. No entry-timing limits.',
     builtIn: true,
     values: base,
+  },
+  {
+    id: 'original-social',
+    name: 'Original + social',
+    description: 'Original, but X and Threads mentions together count as one extra channel. Run next to Original in Arena to see whether social posts add edge.',
+    builtIn: true,
+    values: { ...base, socialMentions: 'one' },
   },
   {
     id: 'early-curve',

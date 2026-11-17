@@ -1,7 +1,7 @@
 export interface Check { name: string; pass: boolean; detail: string; hard?: boolean }
 export interface Ladder { roiPct: number; sellPct: number }
 export interface Strategy {
-  buyAmountSol: number; maxSlippagePct: number; minChannels: number; windowSec: number; minScore: number;
+  buyAmountSol: number; maxSlippagePct: number; minChannels: number; windowSec: number; socialMentions: 'off' | 'one' | 'each'; minScore: number;
   maxSignalAgeSec: number; maxRunupFromFirstPct: number; routes: 'any' | 'curve' | 'graduated'; markStaleSec: number;
   maxTop10HolderPct: number; requireMintAuthorityDisabled: boolean; requireFreezeAuthorityDisabled: boolean;
   rugcheckEnabled: boolean; momentumObserveSec: number; minTrades60s: number; minBuyVolumeSol60s: number;
@@ -52,6 +52,10 @@ export interface ArenaLane {
 }
 export interface Arena { enabled: boolean; autoSelect: boolean; leader: { id: string; since: number } | null; minTrades: number; lanes: ArenaLane[] }
 export interface Stats { pnl: number; wins: number; count: number }
+export interface SocialStatus {
+  state: 'disabled' | 'polling' | 'error'; accounts: string[]; lastMessageAt: number | null;
+  lastPollAt: number | null; pollSec: number; error: string | null;
+}
 export interface TgFolder { link: string; title: string | null; channels: number; error: string | null }
 export interface Snapshot {
   mode: 'paper' | 'live'; liveAvailable: boolean; killSwitch: boolean;
@@ -59,6 +63,7 @@ export interface Snapshot {
   rpc: { current: string; pingMs: number | null; options: { name: string; url: string }[] };
   feed: { source: string; connected: boolean; tracked: number };
   telegram: { state: string; channels: { id: string; title: string; folder: string | null }[]; folders: TgFolder[]; lastMessageAt: number | null; recoveredByPoll: number; error: string | null };
+  social: { x: SocialStatus; threads: SocialStatus };
   strategy: Strategy; presets: Preset[]; activePresetId: string | null; presetStats: PresetStat[]; arena: Arena;
   positions: Position[]; closed: Position[]; signals: Signal[]; mentions: Mention[];
   activity: Activity[]; activityTotal: number; chats: ChatLine[]; stats: { today: Stats; all: Stats }; serverTime: number;

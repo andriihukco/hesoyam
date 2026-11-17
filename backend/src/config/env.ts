@@ -25,6 +25,14 @@ const EnvSchema = z.object({
   TG_FOLDER_LINKS: z.string().default(''),
   TG_CHANNELS: z.string().default(''),
   TG_AUTO_JOIN: bool(true),
+  X_API_KEY: opt(z.string()),
+  X_API_URL: z.string().default('https://api.twitterapi.io'),
+  X_HANDLES: z.string().default(''),
+  X_POLL_SEC: z.coerce.number().int().min(5).max(3600).default(15),
+  THREADS_ACCESS_TOKEN: opt(z.string()),
+  THREADS_API_URL: z.string().default('https://graph.threads.com/v1.0'),
+  THREADS_HANDLES: z.string().default(''),
+  THREADS_KEYWORDS: z.string().default(''),
   RPC_ENDPOINTS: z.string().default('public=https://api.mainnet-beta.solana.com'),
   PUMPPORTAL_WS_URL: z.string().default('wss://pumpportal.fun/api/data'),
   /** Trade subscriptions need a funded PumpPortal key; without it the free RPC curve watcher is used. */
@@ -43,6 +51,9 @@ export const env = {
   DB_PATH: resolve(ROOT_DIR, parsed.DB_PATH),
   folderLinks: splitList(parsed.TG_FOLDER_LINKS),
   extraChannels: splitList(parsed.TG_CHANNELS),
+  xHandles: splitList(parsed.X_HANDLES),
+  threadsHandles: splitList(parsed.THREADS_HANDLES),
+  threadsKeywords: splitList(parsed.THREADS_KEYWORDS),
   rpcEndpoints: parseRpcEndpoints(parsed.RPC_ENDPOINTS),
 };
 

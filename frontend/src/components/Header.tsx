@@ -77,6 +77,16 @@ export function StatusStrip({ s, compact }: { s: Snapshot; compact?: boolean }) 
       dot: tg === 'listening' ? 'pos' : tg === 'error' ? 'neg' : 'off',
       title: s.telegram.error ?? `${s.telegram.channels.length} chats. ${s.telegram.recoveredByPoll} messages recovered by polling (missed by live updates).`,
     },
+    ...(['x', 'threads'] as const).filter((k) => s.social[k].state !== 'disabled').map((k): TileProps => {
+      const x = s.social[k];
+      return {
+        label: k === 'x' ? 'X' : 'Threads',
+        value: x.state === 'polling' ? 'On' : 'Error',
+        sub: x.lastMessageAt ? `msg ${ago(x.lastMessageAt, s.serverTime)} ago` : `${x.accounts.length} feeds`,
+        dot: x.state === 'polling' ? 'pos' : 'neg',
+        title: x.error ?? `${x.accounts.join(', ')}. Each polled about every ${x.pollSec}s.`,
+      };
+    }),
   ];
   if (compact) {
     return (

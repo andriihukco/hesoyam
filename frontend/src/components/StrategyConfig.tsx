@@ -170,7 +170,15 @@ export function StrategyConfig({ s, onError }: { s: Snapshot; onError: (e: strin
         {groups[2]!.sliders.map(sliderRow)}
       </Group>
 
-      <Group title={groups[3]!.title} footer={groups[3]!.footer}>{groups[3]!.sliders.map(sliderRow)}</Group>
+      <Group title={groups[3]!.title}
+        footer="X / Threads: Off = shown in Chats only. As one = all social accounts together count as one channel. Each = every account counts (reposts can pass the filter alone).">
+        {groups[3]!.sliders.map(sliderRow)}
+        <div className="row-sep flex items-center justify-between gap-3 px-4 py-2 text-[15px]">
+          X / Threads
+          <Segmented label="X and Threads mentions" value={draft.socialMentions} onChange={(v) => set('socialMentions', v)}
+            options={[{ value: 'off', label: 'Off' }, { value: 'one', label: 'As one' }, { value: 'each', label: 'Each' }]} />
+        </div>
+      </Group>
 
       <Group title={groups[4]!.title}>
         {toggles.map((t) => (
