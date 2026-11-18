@@ -18,6 +18,10 @@ export class DiscoveryStore {
       mint TEXT PRIMARY KEY, data TEXT NOT NULL, created_at INTEGER NOT NULL, touched_at INTEGER NOT NULL)`);
   }
 
+  get(mint: string): DiscoveredToken | undefined {
+    return this.tokens.get(mint);
+  }
+
   get size(): number {
     return this.tokens.size;
   }
