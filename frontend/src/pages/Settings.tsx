@@ -6,6 +6,7 @@ import { SliderRow, type SliderSpec } from '../components/SliderRow';
 import { TelegramFolders } from '../components/TelegramFolders';
 import { useConfirm } from '../components/ConfirmSheet';
 
+type SecKey = 'mode' | 'telegram' | 'rpc' | 'costs' | 'security' | 'limits' | 'danger';
 type InfraKey = 'priorityFeeSol' | 'jitoTipSol' | 'pumpFeeBps' | 'simulatedLatencyMs';
 type Infra = Pick<Strategy, InfraKey | 'rpc'>;
 
@@ -65,11 +66,41 @@ export function Settings({ s, onError }: { s: Snapshot; onError: (e: string) => 
   };
   const copy = () => void navigator.clipboard?.writeText(shown ?? '').then(() => setCopied(true));
   const ts = s.tokenStatus;
+  const [sec, setSec] = useState<SecKey | null>(null);
+  const sections: { key: SecKey; label: string; summary: string }[] = [
+    { key: 'mode', label: 'Trading mode', summary: s.mode === 'paper' ? 'Paper' : 'Live' },
+    { key: 'telegram', label: 'Telegram folders', summary: `${s.telegram.folders.length} folder${s.telegram.folders.length === 1 ? '' : 's'} · ${s.telegram.state}` },
+    { key: 'rpc', label: 'RPC', summary: draft.rpc },
+    { key: 'costs', label: 'Costs', summary: `${draft.pumpFeeBps} bps · ${draft.simulatedLatencyMs} ms` },
+    { key: 'security', label: 'Security', summary: ts.source === 'rotated' ? 'token rotated' : ts.source === 'env' ? 'token from .env' : 'no token' },
+    { key: 'limits', label: 'Hard limits', summary: hl.agentLiveEnabled ? 'agents may trade live' : 'agents paper only' },
+    { key: 'danger', label: 'Danger zone', summary: 'reset paper wallet' },
+  ];
 
   return (
     <div className="flex flex-col gap-5">
-      <h2 className="px-4 text-[22px] font-bold tracking-tight">Settings</h2>
+      {sec ? (
+        <div className="px-4">
+          <button type="button" className="mb-1 text-[15px] text-tint" onClick={() => setSec(null)}>‹ Settings</button>
+          <h2 className="text-[22px] font-bold tracking-tight">{sections.find((x) => x.key === sec)!.label}</h2>
+        </div>
+      ) : (
+        <>
+          <h2 className="px-4 text-[22px] font-bold tracking-tight">Settings</h2>
+          <Group>
+            {sections.map((x) => (
+              <button key={x.key} type="button" onClick={() => setSec(x.key)}
+                className={`row-sep flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] active:bg-fill ${x.key === 'danger' ? 'text-neg' : ''}`}>
+                <span className="flex-1">{x.label}</span>
+                <span className="max-w-[55%] truncate text-[13px] text-label-2">{x.summary}</span>
+                <span className="text-label-3" aria-hidden>›</span>
+              </button>
+            ))}
+          </Group>
+        </>
+      )}
 
+      {sec === 'mode' && (<>
       <Group title="Mode" footer="Paper mode uses a virtual wallet. Fills use live curve state and Jupiter quotes; failed transactions and MEV are not modelled.">
         <div className="flex items-center justify-between gap-3 px-4 py-2 text-[15px]">
           Trading
@@ -79,9 +110,11 @@ export function Settings({ s, onError }: { s: Snapshot; onError: (e: string) => 
         </div>
         {!s.liveAvailable && <div className="row-sep px-4 py-2 text-[13px] text-label-2">Live engine not built yet.</div>}
       </Group>
+      </>)}
 
-      <TelegramFolders s={s} onError={onError} />
+      {sec === 'telegram' && <TelegramFolders s={s} onError={onError} />}
 
+      {sec === 'rpc' && (<>
       <Group title="RPC" footer="Public RPC is rate-limited; holder checks fall back to RugCheck.">
         <label className="flex items-center justify-between gap-3 px-4 py-2.5 text-[15px]">
           Endpoint
@@ -90,11 +123,15 @@ export function Settings({ s, onError }: { s: Snapshot; onError: (e: string) => 
           </select>
         </label>
       </Group>
+      </>)}
 
+      {sec === 'costs' && (<>
       <Group title="Costs" footer="Used by paper fills so results match what live trading would pay. Paper latency is the wait between quote and fill.">
         {costs.map((c) => <SliderRow key={c.key} spec={c} value={draft[c.key]} onChange={(v) => set(c.key, v)} />)}
       </Group>
+      </>)}
 
+      {sec === 'limits' && (<>
       <Group title="Hard limits" footer="Set in .env. Agents and this page cannot change them.">
         <div className="row-sep flex items-center justify-between px-4 py-2.5 text-[15px]">
           Agents may trade live
@@ -110,7 +147,9 @@ export function Settings({ s, onError }: { s: Snapshot; onError: (e: string) => 
           );
         })}
       </Group>
+      </>)}
 
+      {sec === 'security' && (<>
       <Group title="Security" footer="New token = 32 random bytes as hex (like openssl rand -hex 32). Only its hash is stored. Locked out? Set DASHBOARD_TOKEN_RESET=1, restart, log in with DASHBOARD_TOKEN, then remove the flag.">
         <div className="row-sep flex items-center justify-between px-4 py-2.5 text-[15px]">
           Dashboard token
@@ -131,10 +170,13 @@ export function Settings({ s, onError }: { s: Snapshot; onError: (e: string) => 
         )}
         <button type="button" className="row-sep w-full px-4 py-2.5 text-left text-[15px] text-neg" onClick={() => void rotate()}>Rotate token now</button>
       </Group>
+      </>)}
 
+      {sec === 'danger' && (<>
       <Group title="Danger zone">
         <button className="w-full px-4 py-2.5 text-center text-[15px] text-neg" onClick={() => void reset()}>Reset paper wallet</button>
       </Group>
+      </>)}
 
       {dirty && (
         <div className="sticky bottom-[calc(76px+env(safe-area-inset-bottom))] z-10 lg:bottom-2">
