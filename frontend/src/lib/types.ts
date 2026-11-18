@@ -107,3 +107,16 @@ export interface Portfolio {
     ladder: number; opened: number; closed: number; closeReason: string | null; followEnd: string | null; strategy: string;
   }[];
 }
+
+export type DiscoveryBoard = 'new' | 'soon' | 'graduated' | 'trending' | 'promoted';
+export interface DiscoveryToken {
+  mint: string; symbol: string; name: string; creator: string; createdAt: number; devBuyPct: number; firstMcSol: number;
+  bondingPct: number; realSol: number; migratedAt: number | null; promoted: boolean; origin: string;
+  market: { priceUsd: number | null; mcUsd: number | null; liqUsd: number | null; vol5mUsd: number; vol1hUsd: number;
+    buys5m: number; sells5m: number; change5mPct: number; socials: string[]; updatedAt: number } | null;
+  board: string; score: number; decision: string | null;
+}
+export interface DiscoveryList {
+  board: DiscoveryBoard; tokens: DiscoveryToken[]; serverTime: number;
+  status: { enabled: boolean; connected: boolean; lastEventAt: number | null; tracked: number };
+}

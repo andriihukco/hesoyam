@@ -1,16 +1,17 @@
 import type { ReactNode } from 'react';
 
-export type Tab = 'home' | 'portfolio' | 'logs' | 'strategies' | 'settings';
-export const TABS: Tab[] = ['home', 'portfolio', 'logs', 'strategies', 'settings'];
+export type Tab = 'home' | 'discover' | 'portfolio' | 'logs' | 'strategies' | 'settings';
+export const TABS: Tab[] = ['home', 'discover', 'portfolio', 'logs', 'strategies', 'settings'];
 
 const tabIcons: Record<Tab, ReactNode> = {
   home: <path d="M4 12.5 12 5l8 7.5V20a1 1 0 0 1-1 1h-4.5v-5.5h-5V21H5a1 1 0 0 1-1-1v-7.5Z" />,
+  discover: <><circle cx="12" cy="12" r="8" /><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z" /></>,
   portfolio: <path d="M4 19V5M4 19h16M7.5 15l3.5-4 3 2.5L19 8" />,
   logs: <path d="M5 6.5h14M5 12h14M5 17.5h9" />,
   strategies: <path d="M5 7h9m4 0h1M5 17h1m4 0h9M16 4.5v5M8 14.5v5" />,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" /></>,
 };
-export const tabLabels: Record<Tab, string> = { home: 'Positions', portfolio: 'Portfolio', logs: 'Logs', strategies: 'Strategies', settings: 'Settings' };
+export const tabLabels: Record<Tab, string> = { home: 'Positions', discover: 'Discover', portfolio: 'Portfolio', logs: 'Logs', strategies: 'Strategies', settings: 'Settings' };
 
 export function TabIcon({ tab, className = 'h-6 w-6' }: { tab: Tab; className?: string }) {
   return (

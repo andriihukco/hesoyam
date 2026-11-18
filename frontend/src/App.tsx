@@ -11,6 +11,7 @@ import { PositionDetailSheet } from './components/PositionDetail';
 import { ConfirmProvider } from './components/ConfirmSheet';
 import { Settings } from './pages/Settings';
 import { Portfolio } from './pages/Portfolio';
+import { Discovery } from './pages/Discovery';
 
 const TAB_KEY = '1mbot.tab';
 const readTab = (): Tab => {
@@ -94,6 +95,11 @@ function Shell() {
                 <AlphaLog s={snap} onError={onError} />
               </section>
             </div>
+          )}
+          {tab === 'discover' && (
+            <section aria-label="Discover" className="mx-auto max-w-[1400px]">
+              <Discovery s={snap} onError={onError} />
+            </section>
           )}
           {tab === 'portfolio' && (
             <section aria-label="Portfolio" className="mx-auto max-w-[1100px]">
