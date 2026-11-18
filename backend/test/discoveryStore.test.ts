@@ -89,4 +89,22 @@ describe('DiscoveryStore', () => {
     store.addCreated(created('new', clock.t - MIN));
     expect(store.refreshCandidates(2)).toEqual(['new', 'activeOld']);
   });
+
+  it('promoted tokens we never saw created stay off the curve boards', () => {
+    const { store, clock } = setup();
+    store.setPromoted(['ext']);
+    store.applyCurve('ext', 100, 0);
+    expect(store.list('soon', {}, 60)).toEqual([]);
+    expect(store.list('new', {}, 60)).toEqual([]);
+    expect(store.list('promoted', {}, 60).map((t) => t.mint)).toEqual(['ext']);
+    void clock;
+  });
+
+  it('a created token whose curve completes counts as graduated', () => {
+    const { store, clock } = setup();
+    store.addCreated(created('a', clock.t - MIN));
+    store.applyCurve('a', 100, 85, true);
+    expect(store.list('soon', {}, 60)).toEqual([]);
+    expect(store.list('graduated', {}, 60).map((t) => t.mint)).toEqual(['a']);
+  });
 });

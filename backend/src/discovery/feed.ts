@@ -26,6 +26,17 @@ export interface FeedDeps {
   dexUrl?: string;
 }
 
+/** Node's built-in WebSocket wrapped in the small event interface the feed uses. */
+export function nativeSocket(url: string): SocketLike {
+  const ws = new WebSocket(url);
+  const on: SocketLike['on'] = (ev: string, fn: (data?: unknown) => void) => {
+    if (ev === 'message') ws.addEventListener('message', (e) => fn((e as MessageEvent).data));
+    else ws.addEventListener(ev as 'open' | 'close' | 'error', () => fn());
+    return undefined;
+  };
+  return { on, send: (d) => ws.readyState === WebSocket.OPEN && ws.send(d), close: () => ws.close() };
+}
+
 type Msg = Record<string, unknown>;
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
 
@@ -162,7 +173,7 @@ export class DiscoveryFeed {
         if (!buf) return;
         try {
           const c = decodeCurve(buf);
-          this.store.applyCurve(ok[i]!, bondingPct(c), Number(c.realSolReserves) / LAMPORTS);
+          this.store.applyCurve(ok[i]!, bondingPct(c), Number(c.realSolReserves) / LAMPORTS, c.complete);
         } catch {
           /* not a curve account */
         }

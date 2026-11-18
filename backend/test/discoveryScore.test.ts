@@ -7,7 +7,7 @@ const INITIAL = 793_100_000n * 1_000_000n;
 
 const tok = (o: Partial<DiscoveredToken> = {}): DiscoveredToken => ({
   mint: 'M', symbol: 'S', name: 'N', creator: 'C', createdAt: NOW - 30 * MIN, devBuyPct: 2, firstMcSol: 30,
-  bondingPct: 10, realSol: 1, migratedAt: null, promoted: false,
+  bondingPct: 10, realSol: 1, migratedAt: null, promoted: false, origin: 'created',
   market: { priceUsd: 0.0001, mcUsd: 20_000, liqUsd: 8_000, vol5mUsd: 4_000, vol1hUsd: 20_000, buys5m: 40, sells5m: 20, change5mPct: 12, socials: ['x'], updatedAt: NOW },
   ...o,
 });

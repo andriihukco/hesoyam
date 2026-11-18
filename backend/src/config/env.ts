@@ -51,6 +51,8 @@ const EnvSchema = z.object({
   ANTHROPIC_API_KEY: opt(z.string()),
   HOLDER_AI_MODEL: z.string().default('claude-opus-5-5'),
   LIVE_TRADING_ENABLED: bool(false),
+  /** Discovery boards (free PumpPortal new-token feed + DexScreener). */
+  DISCOVERY_ENABLED: bool(true),
   // Hard limits for agents and live trading. Only settable here; agents and the UI cannot change them.
   AGENT_LIVE_ENABLED: bool(false),
   LIVE_MAX_BUY_SOL: opt(z.coerce.number().positive()),

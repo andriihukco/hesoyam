@@ -63,6 +63,7 @@ export async function buildServer(bot: Bot, token: DashboardToken) {
   app.post('/api/panic-sell', async () => run(() => bot.panicSellAll()));
   app.post('/api/inject', async (req) => run(() => bot.inject(String((req.body as { text?: string })?.text ?? ''))));
   app.get('/api/stats', async () => run(() => bot.allTimeStats()));
+  app.get('/api/discovery', async (req) => run(() => bot.discoveryList((req.query ?? {}) as Record<string, string | undefined>)));
   app.get('/api/portfolio', async (req) => run(() => bot.portfolio(String((req.query as { range?: string })?.range ?? 'all'))));
   app.get('/api/activity', async (req) => {
     const q = (req.query ?? {}) as Record<string, string | undefined>;

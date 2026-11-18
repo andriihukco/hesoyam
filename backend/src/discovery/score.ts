@@ -19,10 +19,12 @@ export interface DiscoveredToken {
   bondingPct: number; realSol: number;
   migratedAt: number | null;
   promoted: boolean;
+  /** How we first saw it: a create event, a migration event, or only via promotions. */
+  origin: 'created' | 'migrated' | 'other';
   market: Market | null;
 }
 
-export type Board = 'new' | 'mid' | 'soon' | 'graduated' | 'old';
+export type Board = 'new' | 'mid' | 'soon' | 'graduated' | 'old' | 'other';
 export interface DiscoveryFilter { minMc?: number; maxMc?: number; maxAgeMin?: number; socials?: boolean; maxDevPct?: number }
 
 export function bondingPct(c: { realTokenReserves: bigint; complete: boolean }): number {
@@ -33,6 +35,8 @@ export function bondingPct(c: { realTokenReserves: bigint; complete: boolean }):
 
 export function boardOf(t: DiscoveredToken, now: number): Board {
   if (t.migratedAt !== null) return now - t.migratedAt < DAY ? 'graduated' : 'old';
+  // Not seen being created on Pump.fun (e.g. only promoted): its curve state is unknown or irrelevant.
+  if (t.origin !== 'created') return 'other';
   if (t.bondingPct >= 70) return 'soon';
   if (t.bondingPct < 30) return 'new';
   return 'mid';

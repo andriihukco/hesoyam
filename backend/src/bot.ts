@@ -5,7 +5,7 @@ import {
 } from './config/strategy.js';
 import type { Db } from './db/db.js';
 import { Rpc } from './lib/rpc.js';
-import { errMsg, log, memo, startOfUtcDay } from './lib/util.js';
+import { errMsg, fetchJson, log, memo, startOfUtcDay } from './lib/util.js';
 import { StrategyStore } from './strategies/store.js';
 import { resolveMain } from './strategies/main.js';
 import type { PresetValues } from './config/strategy.js';
@@ -19,6 +19,10 @@ import { authorityChecks, holderCheck, holderTop10, loadMint, rugcheck, rugcheck
 import { SignalRecorder, canUntrack } from './recording/recorder.js';
 import { captureFacts } from './recording/facts.js';
 import { PostExitFollower } from './recording/follower.js';
+import { PublicKey } from '@solana/web3.js';
+import { DiscoveryStore, type DiscoveryBoard } from './discovery/store.js';
+import { DiscoveryFeed, nativeSocket } from './discovery/feed.js';
+import { boardOf, trendScore, type DiscoveryFilter } from './discovery/score.js';
 import { RANGES, buildPortfolio, rangeStart, snapshotFrom, type Range } from './portfolio/portfolio.js';
 import { momentum } from './risk/momentum.js';
 import { analyzeHolders, heliusKey } from './holders/analyzer.js';
@@ -112,6 +116,8 @@ export class Bot extends EventEmitter {
   readonly store: StrategyStore;
   readonly recorder: SignalRecorder;
   readonly follower: PostExitFollower;
+  readonly discoveryStore: DiscoveryStore;
+  readonly discovery: DiscoveryFeed;
 
   constructor(private db: Db) {
     super();
@@ -145,6 +151,14 @@ export class Bot extends EventEmitter {
       flow: (m, since) => this.feed.flowSince(m, since),
       release: (m) => this.untrackIfIdle(m),
     });
+    this.discoveryStore = new DiscoveryStore(db);
+    this.discovery = new DiscoveryFeed(this.discoveryStore, {
+      // Free socket (no key): new tokens and migrations only.
+      connect: () => nativeSocket('wss://pumpportal.fun/api/data'),
+      getAccounts: async (keys) => (await this.rpc.connection.getMultipleAccountsInfo(keys.map((k) => new PublicKey(k)))).map((a) => (a ? Buffer.from(a.data) : null)),
+      fetchJson: (url) => fetchJson(url, { timeoutMs: 6000 }),
+      dexUrl: env.DEXSCREENER_API_URL,
+    });
     this.follower = new PostExitFollower({
       now: Date.now,
       pollPrice: (m, size) => this.followPrice(m, size),
@@ -177,6 +191,7 @@ export class Bot extends EventEmitter {
   // ---------- lifecycle ----------
 
   async start() {
+    if (env.DISCOVERY_ENABLED) this.discovery.start();
     this.ws?.on('status', () => this.changed());
     this.feed.on('price', (mint: string, price: number | null) => {
       if (!price) return;
@@ -225,6 +240,7 @@ export class Bot extends EventEmitter {
 
   async stop() {
     this.timers.forEach(clearInterval);
+    this.discovery.stop();
     this.ws?.stop();
     this.x.stop();
     this.threads.stop();
@@ -530,6 +546,25 @@ export class Bot extends EventEmitter {
     } catch (e) {
       log('portfolio', `snapshot failed: ${errMsg(e)}`);
     }
+  }
+
+  /** Discovery board for the UI, with the bot's own decision on each token when it evaluated one. */
+  discoveryList(q: Record<string, string | undefined>) {
+    const boards: DiscoveryBoard[] = ['new', 'soon', 'graduated', 'trending', 'promoted'];
+    const board = boards.includes(q.board as DiscoveryBoard) ? (q.board as DiscoveryBoard) : 'new';
+    const n = (v?: string) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
+    const filter: DiscoveryFilter = {
+      minMc: n(q.minMc), maxMc: n(q.maxMc), maxAgeMin: n(q.maxAgeMin), maxDevPct: n(q.maxDevPct), socials: q.socials === '1',
+    };
+    const now = Date.now();
+    return {
+      board,
+      status: { enabled: env.DISCOVERY_ENABLED, connected: this.discovery.connected, lastEventAt: this.discovery.lastEventAt, tracked: this.discoveryStore.size },
+      tokens: this.discoveryStore.list(board, filter, 60).map((t) => ({
+        ...t, board: boardOf(t, now), score: Math.round(trendScore(t, now)), decision: this.db.getSignal(t.mint)?.decision ?? null,
+      })),
+      serverTime: now,
+    };
   }
 
   portfolio(range: string) {

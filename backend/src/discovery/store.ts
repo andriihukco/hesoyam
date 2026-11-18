@@ -5,7 +5,7 @@ const DAY = 24 * 3_600_000;
 const HOUR = 3_600_000;
 
 export type DiscoveryBoard = Exclude<Board, 'mid' | 'old'> | 'trending' | 'promoted';
-export type CreatedEvent = Omit<DiscoveredToken, 'migratedAt' | 'promoted' | 'market'>;
+export type CreatedEvent = Omit<DiscoveredToken, 'migratedAt' | 'promoted' | 'market' | 'origin'>;
 
 /** Discovered tokens: in memory for the boards, mirrored to SQLite so a restart keeps the last 24 h. */
 export class DiscoveryStore {
@@ -30,7 +30,7 @@ export class DiscoveryStore {
     const rows = this.db.sql.prepare('SELECT data FROM discovered_tokens WHERE touched_at >= ?').all(this.now() - DAY) as { data: string }[];
     for (const r of rows) {
       const t = JSON.parse(r.data) as DiscoveredToken;
-      this.tokens.set(t.mint, { ...t, promoted: false });
+      this.tokens.set(t.mint, { ...t, origin: t.origin ?? 'created', promoted: false });
     }
     this.enforceCap();
   }
@@ -40,8 +40,9 @@ export class DiscoveryStore {
   }
 
   addCreated(ev: CreatedEvent): void {
-    if (this.tokens.has(ev.mint)) return;
-    this.tokens.set(ev.mint, { ...ev, migratedAt: null, promoted: false, market: null });
+    const cur = this.tokens.get(ev.mint);
+    if (cur && cur.origin === 'created') return;
+    this.tokens.set(ev.mint, { ...ev, migratedAt: cur?.migratedAt ?? null, promoted: cur?.promoted ?? false, market: cur?.market ?? null, origin: 'created' });
     this.touch(ev.mint);
     this.enforceCap();
   }
@@ -50,7 +51,7 @@ export class DiscoveryStore {
   ensure(mint: string, createdAt = this.now()): DiscoveredToken {
     let t = this.tokens.get(mint);
     if (!t) {
-      t = { mint, symbol: '', name: '', creator: '', createdAt, devBuyPct: 0, firstMcSol: 0, bondingPct: 0, realSol: 0, migratedAt: null, promoted: false, market: null };
+      t = { mint, symbol: '', name: '', creator: '', createdAt, devBuyPct: 0, firstMcSol: 0, bondingPct: 0, realSol: 0, migratedAt: null, promoted: false, market: null, origin: 'other' };
       this.tokens.set(mint, t);
       this.touch(mint);
       this.enforceCap();
@@ -60,16 +61,19 @@ export class DiscoveryStore {
 
   markMigrated(mint: string, ts: number): void {
     const t = this.ensure(mint, ts);
-    t.migratedAt = ts;
+    if (t.origin === 'other') t.origin = 'migrated';
+    t.migratedAt ??= ts;
     t.bondingPct = 100;
     this.touch(mint);
   }
 
-  applyCurve(mint: string, pct: number, realSol: number): void {
+  /** `complete`: the curve finished; for a token we saw created that means it graduated (time ≈ now). */
+  applyCurve(mint: string, pct: number, realSol: number, complete = false): void {
     const t = this.tokens.get(mint);
     if (!t) return;
     t.bondingPct = pct;
     t.realSol = realSol;
+    if (complete && t.origin === 'created' && t.migratedAt === null) t.migratedAt = this.now();
     this.touch(mint);
   }
 
