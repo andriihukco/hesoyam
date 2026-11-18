@@ -10,6 +10,7 @@ import { SideNav } from './components/SideNav';
 import { PositionDetailSheet } from './components/PositionDetail';
 import { ConfirmProvider } from './components/ConfirmSheet';
 import { Settings } from './pages/Settings';
+import { Portfolio } from './pages/Portfolio';
 
 const TAB_KEY = '1mbot.tab';
 const readTab = (): Tab => {
@@ -93,6 +94,11 @@ function Shell() {
                 <AlphaLog s={snap} onError={onError} />
               </section>
             </div>
+          )}
+          {tab === 'portfolio' && (
+            <section aria-label="Portfolio" className="mx-auto max-w-[1100px]">
+              <Portfolio s={snap} onError={onError} onOpen={setDetailId} />
+            </section>
           )}
           {tab === 'logs' && (
             <section aria-label="Logs" className="flex min-h-[70dvh] flex-col lg:h-full">

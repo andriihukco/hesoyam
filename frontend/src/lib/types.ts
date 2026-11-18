@@ -13,7 +13,7 @@ export interface Position {
   id: number; mint: string; symbol: string | null; mode: string; route: string; status: string;
   openedAt: number; closedAt: number | null; costSol: number; entryPriceSol: number; initialTokens: number;
   tokensHeld: number; realizedSol: number; ladderDone: number; peakPriceSol: number; lastPriceSol: number;
-  lastActivityAt: number; closeReason: string | null; preset: string | null; lane: string | null; versionId: number | null;
+  lastActivityAt: number; closeReason: string | null; preset: string | null; lane: string | null; versionId: number | null; followUntil: number | null; followEnd: 'rugged' | 'stale' | '24h' | null;
   rules: { hardStopLossPct: number; trailingStopPct: number; takeProfitLadder: Ladder[] } | null;
 }
 export interface Signal {
@@ -90,4 +90,15 @@ export interface HolderWallet {
 }
 export interface HolderReport {
   mint: string; at: number; wallets: HolderWallet[]; riskScore: number; flags: string[]; summary: string | null; summaryAt: number | null;
+}
+
+export type PortfolioRange = '1d' | '7d' | '30d' | 'all';
+export interface PortfolioGroup { name: string; count: number; pnl: number; winRate: number }
+export interface Portfolio {
+  range: PortfolioRange; mode: string;
+  equity: { ts: number; total: number; cash: number; open: number; pnl: number }[];
+  drawdown: { ts: number; dd: number }[];
+  daily: { day: string; pnl: number; count: number; wins: number }[];
+  byVersion: PortfolioGroup[]; byRoute: PortfolioGroup[]; byExit: PortfolioGroup[];
+  stats: AllTimeStats;
 }

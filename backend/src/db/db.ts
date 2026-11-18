@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS replay_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, version_id INTEGER NOT NULL, from_ts INTEGER NOT NULL, to_ts INTEGER NOT NULL,
   split TEXT NOT NULL, metrics TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS equity_snapshots (
-  ts INTEGER NOT NULL, mode TEXT NOT NULL, cash_sol REAL NOT NULL, open_sol REAL NOT NULL, total_sol REAL NOT NULL);
+  ts INTEGER NOT NULL, mode TEXT NOT NULL, cash_sol REAL NOT NULL, open_sol REAL NOT NULL, total_sol REAL NOT NULL,
+  starting_sol REAL NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS equity_snapshots_mode_ts ON equity_snapshots(mode, ts);
 CREATE TABLE IF NOT EXISTS agent_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, agent TEXT NOT NULL, kind TEXT NOT NULL,
@@ -161,6 +162,8 @@ export class Db {
     if (!cols.includes('lane')) this.sql.exec('ALTER TABLE positions ADD COLUMN lane TEXT');
     if (!cols.includes('rules')) this.sql.exec('ALTER TABLE positions ADD COLUMN rules TEXT');
     if (!cols.includes('version_id')) this.sql.exec('ALTER TABLE positions ADD COLUMN version_id INTEGER');
+    const eqCols = (this.sql.prepare('PRAGMA table_info(equity_snapshots)').all() as Row[]).map((c) => c.name);
+    if (!eqCols.includes('starting_sol')) this.sql.exec('ALTER TABLE equity_snapshots ADD COLUMN starting_sol REAL NOT NULL DEFAULT 0');
     if (!cols.includes('follow_until')) this.sql.exec('ALTER TABLE positions ADD COLUMN follow_until INTEGER');
     if (!cols.includes('follow_end')) this.sql.exec('ALTER TABLE positions ADD COLUMN follow_end TEXT');
   }
@@ -253,14 +256,14 @@ export class Db {
     return r ? toPosition(r) : undefined;
   }
 
-  addEquitySnapshot(s: { ts: number; mode: string; cashSol: number; openSol: number; totalSol: number }) {
-    this.sql.prepare('INSERT INTO equity_snapshots(ts, mode, cash_sol, open_sol, total_sol) VALUES(?,?,?,?,?)')
-      .run(s.ts, s.mode, s.cashSol, s.openSol, s.totalSol);
+  addEquitySnapshot(s: { ts: number; mode: string; cashSol: number; openSol: number; totalSol: number; startingSol: number }) {
+    this.sql.prepare('INSERT INTO equity_snapshots(ts, mode, cash_sol, open_sol, total_sol, starting_sol) VALUES(?,?,?,?,?,?)')
+      .run(s.ts, s.mode, s.cashSol, s.openSol, s.totalSol, s.startingSol);
   }
 
-  equitySnapshots(mode: string, sinceTs: number): { ts: number; cashSol: number; openSol: number; totalSol: number }[] {
-    return (this.sql.prepare('SELECT ts, cash_sol, open_sol, total_sol FROM equity_snapshots WHERE mode = ? AND ts >= ? ORDER BY ts')
-      .all(mode, sinceTs) as Row[]).map((r) => ({ ts: r.ts, cashSol: r.cash_sol, openSol: r.open_sol, totalSol: r.total_sol }));
+  equitySnapshots(mode: string, sinceTs: number): { ts: number; cashSol: number; openSol: number; totalSol: number; startingSol: number }[] {
+    return (this.sql.prepare('SELECT ts, cash_sol, open_sol, total_sol, starting_sol FROM equity_snapshots WHERE mode = ? AND ts >= ? ORDER BY ts')
+      .all(mode, sinceTs) as Row[]).map((r) => ({ ts: r.ts, cashSol: r.cash_sol, openSol: r.open_sol, totalSol: r.total_sol, startingSol: r.starting_sol }));
   }
 
   closedSince(mode: string, sinceTs: number): ClosedRow[] {

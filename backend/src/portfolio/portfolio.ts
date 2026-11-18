@@ -16,7 +16,8 @@ export function exitGroup(reason: string | null): string {
 
 export interface Group { name: string; count: number; pnl: number; winRate: number }
 export interface Portfolio {
-  equity: { ts: number; total: number; cash: number; open: number }[];
+  /** pnl = total − starting balance: stays comparable when the wallet basis changes (Arena on/off, reset). */
+  equity: { ts: number; total: number; cash: number; open: number; pnl: number }[];
   drawdown: { ts: number; dd: number }[];
   daily: { day: string; pnl: number; count: number; wins: number }[];
   byVersion: Group[];
@@ -43,15 +44,15 @@ function groupBy(rows: ClosedRow[], key: (r: ClosedRow) => string): Group[] {
 
 /** Pure: equity/drawdown from snapshots, everything else from closed positions (oldest first). */
 export function buildPortfolio(i: {
-  snapshots: { ts: number; cashSol: number; openSol: number; totalSol: number }[];
+  snapshots: { ts: number; cashSol: number; openSol: number; totalSol: number; startingSol: number }[];
   closed: ClosedRow[];
   versionName: (id: number | null) => string;
 }): Portfolio {
   let peak = -Infinity;
-  const equity = i.snapshots.map((s) => ({ ts: s.ts, total: s.totalSol, cash: s.cashSol, open: s.openSol }));
+  const equity = i.snapshots.map((s) => ({ ts: s.ts, total: s.totalSol, cash: s.cashSol, open: s.openSol, pnl: s.totalSol - s.startingSol }));
   const drawdown = equity.map((e) => {
-    peak = Math.max(peak, e.total);
-    return { ts: e.ts, dd: e.total - peak };
+    peak = Math.max(peak, e.pnl);
+    return { ts: e.ts, dd: e.pnl - peak };
   });
   const days = new Map<string, { pnl: number; count: number; wins: number }>();
   for (const r of i.closed) {

@@ -506,7 +506,7 @@ export class Bot extends EventEmitter {
     try {
       const w = this.walletSummary();
       const openSol = this.db.openPositions().reduce((a, p) => a + p.tokensHeld * p.lastPriceSol, 0);
-      this.db.addEquitySnapshot({ ts: Date.now(), mode: this.mode, cashSol: w.balanceSol, openSol, totalSol: w.balanceSol + openSol });
+      this.db.addEquitySnapshot({ ts: Date.now(), mode: this.mode, cashSol: w.balanceSol, openSol, totalSol: w.balanceSol + openSol, startingSol: w.startingSol });
     } catch (e) {
       log('portfolio', `snapshot failed: ${errMsg(e)}`);
     }

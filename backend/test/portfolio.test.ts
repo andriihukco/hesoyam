@@ -7,7 +7,7 @@ const row = (o: Partial<ClosedRow>): ClosedRow => ({
   id: 1, mint: 'M', symbol: null, route: 'pump-curve', versionId: 1, cost: 0.1, realized: 0.1, ladder: 0,
   opened: 0, closed: 1, closeReason: 'hard stop -16.4%', ...o,
 });
-const snap = (ts: number, total: number) => ({ ts, cashSol: total, openSol: 0, totalSol: total });
+const snap = (ts: number, total: number, startingSol = 10) => ({ ts, cashSol: total, openSol: 0, totalSol: total, startingSol });
 const name = (id: number | null) => (id === null ? 'Custom' : `v${id}`);
 
 describe('buildPortfolio', () => {
@@ -18,6 +18,12 @@ describe('buildPortfolio', () => {
     expect(p.daily).toEqual([]);
     expect(p.byVersion).toEqual([]);
     expect(p.stats.count).toBe(0);
+  });
+
+  it('pnl stays continuous when the wallet basis changes (Arena on/off)', () => {
+    const p = buildPortfolio({ snapshots: [snap(1, 10.2, 10), snap(2, 80.1, 80), snap(3, 9.9, 10)], closed: [], versionName: name });
+    expect(p.equity.map((e) => Number(e.pnl.toFixed(6)))).toEqual([0.2, 0.1, -0.1]);
+    expect(p.drawdown.map((d) => Number(d.dd.toFixed(6)))).toEqual([0, -0.1, -0.3]);
   });
 
   it('drawdown is distance below running peak', () => {
@@ -78,10 +84,10 @@ describe('helpers', () => {
 describe('db storage', () => {
   it('equity snapshots round-trip and filter by mode and since', () => {
     const db = new Db(':memory:');
-    db.addEquitySnapshot({ ts: 1, mode: 'paper', cashSol: 9, openSol: 1, totalSol: 10 });
-    db.addEquitySnapshot({ ts: 5, mode: 'paper', cashSol: 8, openSol: 3, totalSol: 11 });
-    db.addEquitySnapshot({ ts: 6, mode: 'live', cashSol: 1, openSol: 0, totalSol: 1 });
-    expect(db.equitySnapshots('paper', 2)).toEqual([{ ts: 5, cashSol: 8, openSol: 3, totalSol: 11 }]);
+    db.addEquitySnapshot({ ts: 1, mode: 'paper', cashSol: 9, openSol: 1, totalSol: 10, startingSol: 10 });
+    db.addEquitySnapshot({ ts: 5, mode: 'paper', cashSol: 8, openSol: 3, totalSol: 11, startingSol: 10 });
+    db.addEquitySnapshot({ ts: 6, mode: 'live', cashSol: 1, openSol: 0, totalSol: 1, startingSol: 1 });
+    expect(db.equitySnapshots('paper', 2)).toEqual([{ ts: 5, cashSol: 8, openSol: 3, totalSol: 11, startingSol: 10 }]);
   });
 
   it('followCandidates returns recent unended closes only', () => {
