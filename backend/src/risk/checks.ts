@@ -79,6 +79,12 @@ async function holdersFromRugcheck(mint: string): Promise<Holder[]> {
 }
 
 /** RPC first; if it fails (public RPC rate-limits this call), RugCheck's holder list. Fails closed. */
+/** Top-10 holder share in %, or null when holders cannot be loaded. Shares the holderCheck cache. */
+export async function holderTop10(rpc: Rpc, mint: string, f: MintFacts): Promise<number | null> {
+  const r = await memo(`holders:${mint}`, 60_000, () => loadHolders(rpc, mint));
+  return 'error' in r ? null : top10Share(r.holders, Number(f.supply)).pct;
+}
+
 export async function holderCheck(rpc: Rpc, mint: string, f: MintFacts, s: Strategy): Promise<CheckResult> {
   const r = await memo(`holders:${mint}`, 60_000, () => loadHolders(rpc, mint));
   if ('error' in r) return { name: 'top10 holders', pass: false, detail: r.error };
@@ -109,12 +115,17 @@ interface RugSummary {
   risks?: { name: string; level: string; description?: string }[];
 }
 
+/** Raw RugCheck summary (cached 60 s). Throws on network failure. */
+export function rugcheckSummary(mint: string): Promise<RugSummary> {
+  return memo(`rug:${mint}`, 60_000, () =>
+    fetchJson<RugSummary>(`${env.RUGCHECK_API_URL}/tokens/${mint}/report/summary`, { timeoutMs: 4000 }));
+}
+
 /** Second opinion. Network failure does not block (reported as pass with a note). */
 export async function rugcheck(mint: string, s: Strategy): Promise<CheckResult | null> {
   if (!s.rugcheckEnabled) return null;
   try {
-    const r = await memo(`rug:${mint}`, 60_000, () =>
-      fetchJson<RugSummary>(`${env.RUGCHECK_API_URL}/tokens/${mint}/report/summary`, { timeoutMs: 4000 }));
+    const r = await rugcheckSummary(mint);
     const danger = (r.risks ?? []).filter((x) => x.level === 'danger');
     return {
       name: 'rugcheck',

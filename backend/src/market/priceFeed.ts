@@ -71,6 +71,16 @@ export class PriceFeed extends EventEmitter {
     };
   }
 
+  /** Trade flow strictly after `sinceMs` (signal recorder: flow between two samples). */
+  flowSince(mint: string, sinceMs: number) {
+    const recent = (this.mints.get(mint)?.trades ?? []).filter((t) => t.ts > sinceMs);
+    return {
+      trades: recent.length,
+      buySol: recent.filter((t) => t.side === 'buy').reduce((a, t) => a + t.sol, 0),
+      sellSol: recent.filter((t) => t.side === 'sell').reduce((a, t) => a + t.sol, 0),
+    };
+  }
+
   private onTrade(t: PumpTrade) {
     const s = this.mints.get(t.mint);
     if (!s) return;

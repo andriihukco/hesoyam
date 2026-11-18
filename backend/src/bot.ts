@@ -14,7 +14,9 @@ import { PumpPortalWs } from './market/pumpportalWs.js';
 import { CurveWatcher } from './market/curveWatcher.js';
 import { MarketQuoter } from './market/quoter.js';
 import { dexPriceSol } from './market/dexPrice.js';
-import { authorityChecks, holderCheck, loadMint, rugcheck } from './risk/checks.js';
+import { authorityChecks, holderCheck, holderTop10, loadMint, rugcheck, rugcheckSummary } from './risk/checks.js';
+import { SignalRecorder } from './recording/recorder.js';
+import { captureFacts } from './recording/facts.js';
 import { momentum } from './risk/momentum.js';
 import { SignalAggregator, countableChannels } from './signals/aggregator.js';
 import { XSource } from './social/xSource.js';
@@ -102,6 +104,7 @@ export class Bot extends EventEmitter {
   chats: ChatLine[] = [];
   private chatSeq = 0;
   readonly store: StrategyStore;
+  readonly recorder: SignalRecorder;
 
   constructor(private db: Db) {
     super();
@@ -127,6 +130,16 @@ export class Bot extends EventEmitter {
       this.feed = new PriceFeed(new CurveWatcher(this.rpc), 'rpc-curve');
     }
     this.quoter = new MarketQuoter(this.rpc);
+    this.recorder = new SignalRecorder({
+      db,
+      now: Date.now,
+      pollPrice: (m) => this.entryPrice(m, this.strategy),
+      flow: (m, since) => this.feed.flowSince(m, since),
+      // Still inside the mention window or held: prune()/exits untrack later.
+      release: (m) => {
+        if (!this.lastMentionAt.has(m) && !this.db.openPositions().some((p) => p.mint === m)) this.feed.untrack(m);
+      },
+    });
     this.validator = new MintValidator(this.rpc);
     this.aggregator = new SignalAggregator(() => this.maxWindowSec() * 1000);
     this.paper = new PaperExecutor(
@@ -152,7 +165,11 @@ export class Bot extends EventEmitter {
 
   async start() {
     this.ws?.on('status', () => this.changed());
-    this.feed.on('price', (mint: string, price: number | null) => price && void this.onPrice(mint, price));
+    this.feed.on('price', (mint: string, price: number | null) => {
+      if (!price) return;
+      this.recorder.onPrice(mint, price);
+      void this.onPrice(mint, price);
+    });
     this.tg.on('message', (m: TgMessage) => void this.onTelegram(m));
     // X and Threads posts use the same message shape and pipeline as Telegram.
     this.x.on('message', (m: TgMessage) => void this.onTelegram(m));
@@ -172,6 +189,8 @@ export class Bot extends EventEmitter {
     this.timers.push(setInterval(() => void this.tick(), 2_000));
     this.timers.push(setInterval(() => void this.pollGraduated(), 3_000));
     this.timers.push(setInterval(() => this.prune(), 30_000));
+    this.timers.push(setInterval(() => void this.recorder.tick(), 5_000));
+    this.timers.push(setInterval(() => this.recorder.prune(), 3_600_000));
     void this.rpc.ping();
     this.note('info', `bot started in ${this.mode} mode, RPC ${this.rpc.name}, trade feed ${this.feed.sourceName}`);
     await Promise.all([this.tg.start(), this.x.start(), this.threads.start()]);
@@ -229,6 +248,7 @@ export class Bot extends EventEmitter {
     let sig = this.db.getSignal(mint);
     if (!sig) {
       this.feed.track(mint);
+      void this.startRecording(mint);
       sig = { mint, symbol: null, firstSeen: ts, channels: [], score: 0, decision: 'pending', reasons: [],
         firstPriceSol: null, decisionPriceSol: null, updatedAt: Date.now() };
       void this.entryPrice(mint, this.strategy).then((p) => {
@@ -260,6 +280,24 @@ export class Bot extends EventEmitter {
   }
 
   /** Effective buy price (SOL/token) for the configured size, or null. */
+  /** Start the 30-min path recording and capture risk facts for a new signal. Never throws. */
+  private async startRecording(mint: string) {
+    try {
+      const route = await memo(`route:${mint}`, 5_000, () => this.quoter.route(mint));
+      this.recorder.start(mint, route);
+      const program = this.mintProgram.get(mint)!;
+      await captureFacts({
+        db: this.db,
+        now: Date.now,
+        loadMint: (m) => loadMint(this.rpc, m, program),
+        top10: (m, f) => holderTop10(this.rpc, m, f),
+        rugcheck: (m) => rugcheckSummary(m),
+      }, mint, route);
+    } catch (e) {
+      log('recorder', `start failed for ${short(mint)}: ${errMsg(e)}`);
+    }
+  }
+
   private async entryPrice(mint: string, s: Strategy): Promise<number | null> {
     try {
       const program = this.mintProgram.get(mint)!;
@@ -648,7 +686,8 @@ export class Bot extends EventEmitter {
     const held = new Set(this.db.openPositions().map((p) => p.mint));
     for (const [mint, at] of this.lastMentionAt) {
       if (now - at > keepMs && !held.has(mint)) {
-        this.feed.untrack(mint);
+        // A signal still being recorded stays subscribed; the recorder releases it when its window ends.
+        if (!this.recorder.isRecording(mint)) this.feed.untrack(mint);
         this.lastMentionAt.delete(mint);
       }
     }
