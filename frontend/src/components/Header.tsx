@@ -39,7 +39,7 @@ export function Header({ s, online, theme, setTheme, onError }: {
             <span className="truncate">{online ? 'Connected' : 'Offline'}</span>
             <span className={`rounded px-1.5 text-[11px] font-semibold ${s.mode === 'paper' ? 'bg-tint/15 text-tint' : 'bg-neg-solid/15 text-neg'}`}
               title={s.mode === 'paper' ? 'Virtual wallet. Fills use live curve state and Jupiter quotes.' : 'Real funds'}>
-              {s.mode === 'paper' ? 'TEST' : 'LIVE'}
+              {s.mode === 'paper' ? 'PAPER' : 'LIVE'}
             </span>
           </div>
         </div>
@@ -50,8 +50,8 @@ export function Header({ s, online, theme, setTheme, onError }: {
         </button>
         <label className={`flex items-center gap-2 rounded-full py-1 pl-3 pr-1 ${s.killSwitch ? 'bg-neg-solid/15' : 'bg-fill'}`}
           title="Blocks all new buys. Exits keep running.">
-          <span className={`text-[13px] font-semibold ${s.killSwitch ? 'text-neg' : 'text-label-2'}`}>{s.killSwitch ? 'Buys off' : 'Kill'}</span>
-          <Switch label="Kill switch: block new buys" checked={s.killSwitch} disabled={busy} danger onChange={(on) => void toggleKill(on)} />
+          <span className={`text-[13px] font-semibold ${s.killSwitch ? 'text-neg' : 'text-label-2'}`}>New buys {s.killSwitch ? 'off' : 'on'}</span>
+          <Switch label="Kill switch: block all new buys" checked={s.killSwitch} disabled={busy} danger onChange={(on) => void toggleKill(on)} />
         </label>
       </div>
     </header>

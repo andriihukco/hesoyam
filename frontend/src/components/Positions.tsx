@@ -1,19 +1,26 @@
 import { ago, call, pct, short, sol, tone } from '../lib/api';
 import type { Position, Snapshot } from '../lib/types';
 import { Card } from './ui';
+import { useConfirm } from './ConfirmSheet';
 
 export function Positions({ s, onError, onOpen }: { s: Snapshot; onError: (e: string) => void; onOpen: (id: number) => void }) {
   const steps = s.strategy.takeProfitLadder.length;
-  const panic = () =>
-    confirm(`Sell all ${s.positions.length} open positions now?`) &&
-    call('POST', '/api/panic-sell').catch((e) => onError((e as Error).message));
-  const dump = (p: Position) => call('POST', `/api/positions/${p.id}/sell`).catch((e) => onError((e as Error).message));
+  const ask = useConfirm();
+  const panic = async () => {
+    if (!(await ask({ title: `Sell all ${s.positions.length} open positions?`, body: 'Sells at the current price. This cannot be undone.', confirm: 'Sell all', danger: true }))) return;
+    await call('POST', '/api/panic-sell').catch((e) => onError((e as Error).message));
+  };
+  const dump = async (p: Position) => {
+    const name = p.symbol ? '$' + p.symbol : short(p.mint);
+    if (!(await ask({ title: `Sell ${name} now?`, body: 'Sells the whole position at the current price.', confirm: 'Sell', danger: true }))) return;
+    await call('POST', `/api/positions/${p.id}/sell`).catch((e) => onError((e as Error).message));
+  };
 
   return (
     <Card
       className="min-h-0 xl:flex-1"
       title={`Positions · ${s.positions.length}/${s.strategy.maxOpenPositions}`}
-      right={s.positions.length > 0 && <button className="font-semibold text-neg" onClick={panic}>Sell all</button>}
+      right={s.positions.length > 0 && <button className="font-semibold text-neg" onClick={() => void panic()}>Sell all</button>}
     >
       <div className="scroll-y min-h-0">
       {s.positions.map((p) => {
@@ -41,7 +48,7 @@ export function Positions({ s, onError, onOpen }: { s: Snapshot; onError: (e: st
               <div className={`text-[12px] ${tone(upnl)}`}>{upnl >= 0 ? '+' : ''}{sol(upnl)} SOL</div>
             </div>
             </button>
-            <button className="btn btn-sm btn-danger-tinted" onClick={() => confirm(`Sell ${p.symbol ? '$' + p.symbol : short(p.mint)} now?`) && dump(p)}>Sell</button>
+            <button className="btn btn-sm btn-danger-tinted" onClick={() => void dump(p)}>Sell</button>
           </div>
         );
       })}

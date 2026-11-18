@@ -1,14 +1,18 @@
 import { call, sol, tone } from '../lib/api';
 import type { ArenaLane, Snapshot } from '../lib/types';
 import { Group, Switch } from './ui';
+import { useConfirm } from './ConfirmSheet';
 
 /** Arena: every preset paper-trades the same signals at once; leaderboard ranked by total PnL. */
 export function Arena({ s, onError }: { s: Snapshot; onError: (e: string) => void }) {
   const a = s.arena;
   const run = (fn: () => Promise<unknown>) => void fn().catch((e) => onError((e as Error).message));
   const set = (patch: { enabled?: boolean; autoSelect?: boolean }) => run(() => call('POST', '/api/arena', patch));
-  const use = (l: ArenaLane) =>
-    confirm(`Make "${l.name}" your main strategy?`) && run(() => call('POST', `/api/presets/${encodeURIComponent(l.id)}/apply`));
+  const ask = useConfirm();
+  const use = async (l: ArenaLane) => {
+    if (await ask({ title: `Make "${l.name}" your main strategy?`, body: 'Open positions keep their own exit rules.', confirm: 'Use' }))
+      run(() => call('POST', `/api/presets/${encodeURIComponent(l.id)}/apply`));
+  };
   const leaderHours = a.leader ? (s.serverTime - a.leader.since) / 3_600_000 : 0;
 
   return (
@@ -60,7 +64,7 @@ export function Arena({ s, onError }: { s: Snapshot; onError: (e: string) => voi
                   <div className={`text-[15px] font-semibold tabular-nums ${tone(l.pnl)}`}>{l.pnl >= 0 ? '+' : ''}{sol(l.pnl, 3)}</div>
                   <div className="text-[11px] text-label-3">{sol(l.balanceSol, 2)} SOL</div>
                   {!isMain && l.count > 0 && (
-                    <button className="mt-0.5 text-[13px] font-medium text-tint" onClick={() => use(l)}>Use</button>
+                    <button className="mt-0.5 text-[13px] font-medium text-tint" onClick={() => void use(l)}>Use</button>
                   )}
                 </div>
               </div>

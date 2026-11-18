@@ -13,7 +13,7 @@ export interface Position {
   id: number; mint: string; symbol: string | null; mode: string; route: string; status: string;
   openedAt: number; closedAt: number | null; costSol: number; entryPriceSol: number; initialTokens: number;
   tokensHeld: number; realizedSol: number; ladderDone: number; peakPriceSol: number; lastPriceSol: number;
-  lastActivityAt: number; closeReason: string | null; preset: string | null; lane: string | null;
+  lastActivityAt: number; closeReason: string | null; preset: string | null; lane: string | null; versionId: number | null;
   rules: { hardStopLossPct: number; trailingStopPct: number; takeProfitLadder: Ladder[] } | null;
 }
 export interface Signal {
@@ -44,7 +44,21 @@ export interface AllTimeStats {
   kills: number; deaths: number; assists: number; kda: number;
   avgHoldMs: number; maxDrawdownSol: number; firstAt: number | null; lastAt: number | null;
 }
-export interface Preset { id: string; name: string; description: string; builtIn: boolean; values: Partial<Strategy> }
+export interface Preset { id: string; name: string; description: string; builtIn: boolean; values: Partial<Strategy>; versionId?: number; version?: number }
+export type Author = 'user' | 'optimizer' | 'advisor';
+export type Stage = 'draft' | 'replay-passed' | 'paper' | 'live-canary' | 'live' | 'retired';
+export type PresetValues = Omit<Strategy, 'rpc' | 'priorityFeeSol' | 'jitoTipSol' | 'pumpFeeBps' | 'simulatedLatencyMs'>;
+export interface VersionRow {
+  id: number; strategyId: string; version: number; parentId: number | null; values: PresetValues;
+  author: Author; note: string; stage: Stage; createdAt: number;
+}
+export interface StrategyRow { id: string; name: string; description: string; builtIn: boolean; archived: boolean; createdAt: number; latest: VersionRow }
+export interface VersionStat { versionId: number; count: number; wins: number; pnl: number; avgPnlPct: number; maxDrawdownSol: number }
+export interface StrategyDetail { strategy: StrategyRow; versions: VersionRow[]; stats: VersionStat[]; curves: Record<string, { ts: number; pnl: number }[]> }
+export interface HardLimits {
+  agentLiveEnabled: boolean; maxBuySol: number | null; maxDailyLossSol: number | null; maxOpen: number | null;
+  canaryBuySol: number | null; rollbackLossSol: number | null;
+}
 export interface PresetStat { preset: string | null; count: number; wins: number; pnl: number; avgPnlPct: number }
 export interface ArenaLane {
   id: string; name: string; balanceSol: number; startingSol: number; open: number; count: number; wins: number;
@@ -64,7 +78,7 @@ export interface Snapshot {
   feed: { source: string; connected: boolean; tracked: number };
   telegram: { state: string; channels: { id: string; title: string; folder: string | null }[]; folders: TgFolder[]; lastMessageAt: number | null; recoveredByPoll: number; error: string | null };
   social: { x: SocialStatus; threads: SocialStatus };
-  strategy: Strategy; presets: Preset[]; activePresetId: string | null; presetStats: PresetStat[]; arena: Arena;
+  strategy: Strategy; presets: Preset[]; activePresetId: string | null; presetStats: PresetStat[]; versionStats: VersionStat[]; hardLimits: HardLimits; arena: Arena;
   positions: Position[]; closed: Position[]; signals: Signal[]; mentions: Mention[];
   activity: Activity[]; activityTotal: number; chats: ChatLine[]; stats: { today: Stats; all: Stats }; serverTime: number;
 }

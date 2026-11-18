@@ -115,13 +115,13 @@ function StatsPanel({ s }: { s: Snapshot }) {
 
   if (err && !st) return <div className="px-4 py-3 text-[13px] text-neg">Stats: {err}</div>;
   if (!st) return <div className="px-4 py-3 text-[13px] text-label-3">Loading stats…</div>;
-  if (!st.count) return <div className="px-4 py-3 text-[13px] text-label-3">No closed trades yet ({st.mode}).</div>;
+  if (!st.count) return <div className="px-4 py-3 text-[13px] text-label-3">No closed trades yet ({st.mode === 'paper' ? 'Paper' : 'Live'}).</div>;
 
   const streak = st.currentStreak > 0 ? `W${st.currentStreak}` : `L${-st.currentStreak}`;
   return (
     <div className="px-3 py-3">
       <div className="mb-2 flex items-baseline justify-between px-1">
-        <span className="text-[13px] font-semibold">All-time · {st.mode}</span>
+        <span className="text-[13px] font-semibold">All-time · {st.mode === 'paper' ? 'Paper' : 'Live'}</span>
         <span className="text-[11px] text-label-3">
           {st.count} trades{st.firstAt ? ` since ${new Date(st.firstAt).toLocaleDateString()}` : ''}
         </span>
@@ -129,12 +129,6 @@ function StatsPanel({ s }: { s: Snapshot }) {
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Tile label="Total PnL" value={`${sol(st.pnlSol)} SOL`} cls={tone(st.pnlSol)} sub={`avg ${pct(st.avgPnlPct)} / trade`} />
         <Tile label="Win rate" value={`${st.winRate.toFixed(1)}%`} sub={`${st.wins}W · ${st.losses}L`} />
-        <Tile
-          label="KDA"
-          value={st.kda.toFixed(2)}
-          sub={`${st.kills} / ${st.deaths} / ${st.assists}`}
-          title="K = winning trades, D = losing trades, A = take-profit steps hit. KDA = (K + A) / D."
-        />
         <Tile
           label="Profit factor"
           value={st.profitFactor === null ? '∞' : st.profitFactor.toFixed(2)}
@@ -156,6 +150,12 @@ function StatsPanel({ s }: { s: Snapshot }) {
         <Tile label="Avg hold" value={dur(st.avgHoldMs)} />
         <Tile label="Gross" value={`+${st.grossWinSol.toFixed(2)}`} cls="text-pos" sub={`−${st.grossLossSol.toFixed(2)} SOL`} />
       </div>
+      <details className="mt-2 px-1 text-[12px] text-label-2">
+        <summary className="cursor-pointer select-none">More</summary>
+        <p className="mt-1" title="K = winning trades, D = losing trades, A = take-profit steps hit. KDA = (K + A) / D.">
+          KDA {st.kda.toFixed(2)} ({st.kills} wins / {st.deaths} losses / {st.assists} take-profit steps)
+        </p>
+      </details>
     </div>
   );
 }
