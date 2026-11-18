@@ -4,7 +4,7 @@ export interface Strategy {
   buyAmountSol: number; maxSlippagePct: number; minChannels: number; windowSec: number; socialMentions: 'off' | 'one' | 'each'; minScore: number;
   maxSignalAgeSec: number; maxRunupFromFirstPct: number; routes: 'any' | 'curve' | 'graduated'; markStaleSec: number;
   maxTop10HolderPct: number; requireMintAuthorityDisabled: boolean; requireFreezeAuthorityDisabled: boolean;
-  rugcheckEnabled: boolean; momentumObserveSec: number; minTrades60s: number; minBuyVolumeSol60s: number;
+  rugcheckEnabled: boolean; holderAnalysisEnabled: boolean; maxHolderRisk: number; momentumObserveSec: number; minTrades60s: number; minBuyVolumeSol60s: number;
   minGraduatedVolumeUsd5m: number; takeProfitLadder: Ladder[]; trailingStopPct: number; hardStopLossPct: number;
   stagnationSec: number; maxOpenPositions: number; maxDailyLossSol: number; priorityFeeSol: number;
   jitoTipSol: number; pumpFeeBps: number; simulatedLatencyMs: number; rpc: string;
@@ -67,4 +67,13 @@ export interface Snapshot {
   strategy: Strategy; presets: Preset[]; activePresetId: string | null; presetStats: PresetStat[]; arena: Arena;
   positions: Position[]; closed: Position[]; signals: Signal[]; mentions: Mention[];
   activity: Activity[]; activityTotal: number; chats: ChatLine[]; stats: { today: Stats; all: Stats }; serverTime: number;
+}
+
+export interface HolderWallet {
+  owner: string; pct: number; solBalance: number | null; txCount: number; firstSeenTs: number | null; fundedBy: string | null;
+  buys: number; sells: number; boughtTokens: number; soldTokens: number; solIn: number; solOut: number;
+  otherTokenCount: number; otherTokens: string[]; rugLinks: number; flags: string[];
+}
+export interface HolderReport {
+  mint: string; at: number; wallets: HolderWallet[]; riskScore: number; flags: string[]; summary: string | null; summaryAt: number | null;
 }

@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { HolderReport } from '../holders/score.js';
 import type { Mention, Position, SignalRecord, Trade } from '../types.js';
 
 const SCHEMA = `
@@ -30,6 +31,10 @@ CREATE TABLE IF NOT EXISTS trades (
   latency_ms INTEGER NOT NULL, reason TEXT NOT NULL, ts INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS activity (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, level TEXT NOT NULL, text TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS holder_reports (
+  mint TEXT PRIMARY KEY, at INTEGER NOT NULL, risk INTEGER NOT NULL, report TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS rug_wallets (
+  wallet TEXT NOT NULL, mint TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (wallet, mint));
 `;
 
 export interface ActivityRow { id: number; ts: number; level: 'info' | 'warn' | 'trade'; text: string }
@@ -282,6 +287,40 @@ export class Db {
       )
       .all(mode) as Parameters<typeof computeStats>[0];
     return computeStats(rows);
+  }
+
+  saveHolderReport(r: HolderReport) {
+    this.sql
+      .prepare('INSERT INTO holder_reports(mint, at, risk, report) VALUES(?, ?, ?, ?) ON CONFLICT(mint) DO UPDATE SET at = excluded.at, risk = excluded.risk, report = excluded.report')
+      .run(r.mint, r.at, r.riskScore, JSON.stringify(r));
+  }
+
+  holderReport(mint: string): HolderReport | undefined {
+    const r = this.sql.prepare('SELECT report FROM holder_reports WHERE mint = ?').get(mint) as Row | undefined;
+    return r ? (JSON.parse(r.report) as HolderReport) : undefined;
+  }
+
+  /** Remember the top holders (and their funders) of a coin that rugged. Returns wallets added. */
+  markRugged(mint: string, ts = Date.now()): number {
+    const rep = this.holderReport(mint);
+    if (!rep) return 0;
+    const wallets = new Set(rep.wallets.flatMap((w) => [w.owner, ...(w.fundedBy ? [w.fundedBy] : [])]));
+    const st = this.sql.prepare('INSERT OR IGNORE INTO rug_wallets(wallet, mint, ts) VALUES(?, ?, ?)');
+    let n = 0;
+    for (const w of wallets) n += Number(st.run(w, mint, ts).changes);
+    return n;
+  }
+
+  /** How many rugged coins each wallet was linked to. */
+  rugLinks(wallets: string[]): Map<string, number> {
+    const out = new Map<string, number>();
+    if (!wallets.length) return out;
+    const uniq = [...new Set(wallets)];
+    const rows = this.sql
+      .prepare(`SELECT wallet, COUNT(*) AS n FROM rug_wallets WHERE wallet IN (${uniq.map(() => '?').join(',')}) GROUP BY wallet`)
+      .all(...uniq) as Row[];
+    for (const r of rows) out.set(r.wallet, Number(r.n));
+    return out;
   }
 
   addActivity(ts: number, level: string, text: string): number {

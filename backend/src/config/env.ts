@@ -41,6 +41,11 @@ const EnvSchema = z.object({
   JUPITER_API_KEY: opt(z.string()),
   RUGCHECK_API_URL: z.string().default('https://api.rugcheck.xyz/v1'),
   DEXSCREENER_API_URL: z.string().default('https://api.dexscreener.com'),
+  /** Holder analysis. Empty = taken from a helius RPC_ENDPOINTS url. */
+  HELIUS_API_KEY: opt(z.string()),
+  /** Claude summary of holder reports (on demand). Empty = summaries off. */
+  ANTHROPIC_API_KEY: opt(z.string()),
+  HOLDER_AI_MODEL: z.string().default('claude-opus-5-5'),
   LIVE_TRADING_ENABLED: bool(false),
 });
 

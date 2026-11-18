@@ -14,6 +14,9 @@ import { MarketQuoter } from './market/quoter.js';
 import { dexPriceSol } from './market/dexPrice.js';
 import { authorityChecks, holderCheck, loadMint, rugcheck } from './risk/checks.js';
 import { momentum } from './risk/momentum.js';
+import { analyzeHolders, heliusKey } from './holders/analyzer.js';
+import { summarize } from './holders/summary.js';
+import type { HolderReport } from './holders/score.js';
 import { SignalAggregator, countableChannels } from './signals/aggregator.js';
 import { XSource } from './social/xSource.js';
 import { ThreadsSource } from './social/threadsSource.js';
@@ -304,6 +307,17 @@ export class Bot extends EventEmitter {
         this.record(lane, mint, { decision: 'reject', score: res.score, reasons, failed: res.failed, symbol });
         this.note('info', `${tag}reject ${short(mint)} score ${res.score}: ${res.failed.map((f) => f.name).join(', ')}`);
         return;
+      }
+
+      const hr = await this.holderRiskCheck(mint, s);
+      if (hr) {
+        reasons.push(hr);
+        if (!hr.pass) {
+          this.evalState.set(key, 'soft');
+          this.record(lane, mint, { decision: 'reject', score: res.score, reasons, failed: [hr], symbol });
+          this.note('info', `${tag}reject ${short(mint)}: ${hr.detail}`);
+          return;
+        }
       }
 
       const blocked = this.guardReason(lane, mint);
@@ -605,6 +619,10 @@ export class Bot extends EventEmitter {
       if (p.status === 'closed') {
         const pnl = p.realizedSol - p.costSol;
         this.note('trade', `CLOSED ${short(p.mint)} PnL ${pnl >= 0 ? '+' : ''}${pnl.toFixed(4)} SOL`);
+        if (p.costSol > 0 && pnl / p.costSol <= -0.7) {
+          const n = this.db.markRugged(p.mint);
+          if (n) this.note('warn', `rug ${short(p.mint)}: ${n} holder/funder wallets remembered for future holder checks`);
+        }
         this.markOkAt.delete(p.id);
         if (!this.db.openPositions().some((x) => x.mint === p.mint)) this.feed.untrack(p.mint);
       }
@@ -669,6 +687,45 @@ export class Bot extends EventEmitter {
     this.db.setSetting('tgFolderLinks', this.tg.folderLinks());
     this.note('info', `telegram folder removed: ${link}`);
     this.changed();
+  }
+
+  // ---------- holder analysis ----------
+
+  /** Cached report (≤ 10 min) or a fresh one. Shared by the buy check and the dashboard. */
+  holderReport(mint: string, refresh = false): Promise<HolderReport> {
+    const cached = this.db.holderReport(mint);
+    if (!refresh && cached && Date.now() - cached.at < 10 * 60_000) return Promise.resolve(cached);
+    return memo(`hreport:${mint}`, refresh ? 0 : 60_000, async () => {
+      const r = await analyzeHolders(mint, (w) => this.db.rugLinks(w));
+      this.db.saveHolderReport(r);
+      return r;
+    });
+  }
+
+  async holderSummary(mint: string): Promise<HolderReport> {
+    const r = await this.holderReport(mint);
+    r.summary = await summarize(r);
+    r.summaryAt = Date.now();
+    this.db.saveHolderReport(r);
+    return r;
+  }
+
+  /** Strategy check. No Helius key or a timeout does not block (like RugCheck). */
+  private async holderRiskCheck(mint: string, s: Strategy): Promise<CheckResult | null> {
+    if (!s.holderAnalysisEnabled || !heliusKey()) return null;
+    try {
+      const r = await Promise.race([
+        this.holderReport(mint),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout 8s')), 8_000)),
+      ]);
+      return {
+        name: 'holder risk',
+        pass: r.riskScore <= s.maxHolderRisk,
+        detail: `${r.riskScore}/100 (limit ${s.maxHolderRisk})${r.flags.length ? `: ${r.flags.slice(0, 3).join('; ')}` : ''}`,
+      };
+    } catch (e) {
+      return { name: 'holder risk', pass: true, detail: `unavailable: ${errMsg(e)} (not blocking)` };
+    }
   }
 
   /** What the bot knows about one token, for the chart sheet opened from Chats. */

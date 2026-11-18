@@ -47,6 +47,7 @@ const groups: { title: string; footer?: string; sliders: Slider[] }[] = [
     title: 'Risk & momentum',
     sliders: [
       { key: 'maxTop10HolderPct', label: 'Max top-10 holders', min: 5, max: 80, step: 1, unit: '%' },
+      { key: 'maxHolderRisk', label: 'Max holder risk', min: 0, max: 100, step: 5, unit: '' },
       { key: 'minTrades60s', label: 'Min trades / 60s', min: 0, max: 100, step: 1, unit: '' },
       { key: 'minBuyVolumeSol60s', label: 'Min buy volume / 60s', min: 0, max: 50, step: 0.5, unit: 'SOL' },
     ],
@@ -62,10 +63,11 @@ const groups: { title: string; footer?: string; sliders: Slider[] }[] = [
   },
 ];
 
-const toggles: { key: 'requireMintAuthorityDisabled' | 'requireFreezeAuthorityDisabled' | 'rugcheckEnabled'; label: string }[] = [
+const toggles: { key: 'requireMintAuthorityDisabled' | 'requireFreezeAuthorityDisabled' | 'rugcheckEnabled' | 'holderAnalysisEnabled'; label: string }[] = [
   { key: 'requireMintAuthorityDisabled', label: 'Require mint authority off' },
   { key: 'requireFreezeAuthorityDisabled', label: 'Require freeze authority off' },
   { key: 'rugcheckEnabled', label: 'RugCheck second opinion' },
+  { key: 'holderAnalysisEnabled', label: 'Holder wallet analysis (Helius)' },
 ];
 
 export function StrategyConfig({ s, onError }: { s: Snapshot; onError: (e: string) => void }) {

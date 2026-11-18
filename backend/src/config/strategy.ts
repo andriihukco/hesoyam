@@ -28,6 +28,10 @@ export const StrategySchema = z.object({
   requireMintAuthorityDisabled: z.boolean(),
   requireFreezeAuthorityDisabled: z.boolean(),
   rugcheckEnabled: z.boolean(),
+  /** Wallet-level holder analysis (Helius) for tokens that passed every other check. */
+  holderAnalysisEnabled: z.boolean(),
+  /** Reject when the holder risk score is above this (0 clean … 100 coordinated / rug-linked). */
+  maxHolderRisk: z.number().min(0).max(100),
   // Momentum
   momentumObserveSec: z.number().int().min(0).max(120),
   minTrades60s: z.number().int().min(0).max(10000),
@@ -69,6 +73,8 @@ export const DEFAULT_STRATEGY: Strategy = {
   requireMintAuthorityDisabled: true,
   requireFreezeAuthorityDisabled: true,
   rugcheckEnabled: true,
+  holderAnalysisEnabled: true,
+  maxHolderRisk: 60,
   momentumObserveSec: 10,
   minTrades60s: 8,
   minBuyVolumeSol60s: 3,
