@@ -9,6 +9,7 @@ import { TabBar, TABS, type Tab } from './components/TabBar';
 import { SideNav } from './components/SideNav';
 import { PositionDetailSheet } from './components/PositionDetail';
 import { ConfirmProvider } from './components/ConfirmSheet';
+import { Settings } from './pages/Settings';
 
 const TAB_KEY = '1mbot.tab';
 const readTab = (): Tab => {
@@ -104,7 +105,7 @@ function Shell() {
             </section>
           )}
           {tab === 'settings' && (
-            <section aria-label="Settings" className="mx-auto max-w-[640px] text-label-2">Settings</section>
+            <section aria-label="Settings" className="mx-auto max-w-[640px]"><Settings s={snap} onError={onError} /></section>
           )}
         </main>
       </div>

@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react';
 
 export function Segmented<T extends string>({ value, options, onChange, label, fill }: {
-  value: T; options: { value: T; label: ReactNode; title?: string }[]; onChange: (v: T) => void; label: string; fill?: boolean;
+  value: T; options: { value: T; label: ReactNode; title?: string; disabled?: boolean }[]; onChange: (v: T) => void; label: string; fill?: boolean;
 }) {
   return (
     <div className={`seg ${fill ? 'seg-fill' : ''}`} role="group" aria-label={label}>
       {options.map((o) => (
-        <button key={o.value} type="button" title={o.title} aria-pressed={value === o.value} onClick={() => onChange(o.value)}>
+        <button key={o.value} type="button" title={o.title} aria-pressed={value === o.value} disabled={o.disabled}
+          className="disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onChange(o.value)}>
           {o.label}
         </button>
       ))}

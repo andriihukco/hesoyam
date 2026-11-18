@@ -4,7 +4,6 @@ import type { Snapshot, Strategy } from '../lib/types';
 import { Group, Segmented, Switch } from './ui';
 import { Presets } from './Presets';
 import { Arena } from './Arena';
-import { TelegramFolders } from './TelegramFolders';
 
 type NumKey = { [K in keyof Strategy]: Strategy[K] extends number ? K : never }[keyof Strategy];
 type Slider = { key: NumKey; label: string; min: number; max: number; step: number; unit: string; zeroOff?: boolean };
@@ -53,11 +52,9 @@ const groups: { title: string; footer?: string; sliders: Slider[] }[] = [
   },
   {
     title: 'Limits',
-    footer: 'Paper latency is the wait between quote and fill, so price movement during a real transaction is simulated.',
     sliders: [
       { key: 'maxOpenPositions', label: 'Max open positions', min: 1, max: 20, step: 1, unit: '' },
       { key: 'maxDailyLossSol', label: 'Daily loss limit', min: 0.1, max: 10, step: 0.1, unit: 'SOL' },
-      { key: 'simulatedLatencyMs', label: 'Paper latency', min: 0, max: 3000, step: 50, unit: 'ms' },
     ],
   },
 ];
@@ -115,26 +112,6 @@ export function StrategyConfig({ s, onError }: { s: Snapshot; onError: (e: strin
       <Arena s={s} onError={onError} />
 
       <Presets s={s} dirty={dirty} onError={onError} />
-
-      <Group title="Mode" footer="Test mode uses a virtual wallet. Fills use live curve state and Jupiter quotes; failed transactions and MEV are not modelled.">
-        <div className="flex items-center justify-between gap-3 px-4 py-2 text-[15px]">
-          Trading
-          <Segmented label="Trading mode" value={s.mode}
-            onChange={(m) => void call('POST', '/api/mode', { mode: m }).catch((e) => onError((e as Error).message))}
-            options={[{ value: 'paper', label: 'Test' }, { value: 'live', label: 'Live', title: 'Live engine not built yet (PLAN.md phase 7)' }]} />
-        </div>
-      </Group>
-
-      <TelegramFolders s={s} onError={onError} />
-
-      <Group title="RPC" footer="Public RPC is rate-limited; holder checks fall back to RugCheck.">
-        <label className="flex items-center justify-between gap-3 px-4 py-2.5 text-[15px]">
-          Endpoint
-          <select value={draft.rpc} onChange={(e) => set('rpc', e.target.value)} className="min-w-0 max-w-[60%] bg-transparent text-right text-label-2 outline-none">
-            {s.rpc.options.map((o) => <option key={o.name} value={o.name}>{o.name}</option>)}
-          </select>
-        </label>
-      </Group>
 
       {groups.slice(0, 1).map((g) => <Group key={g.title} title={g.title} footer={g.footer}>{g.sliders.map(sliderRow)}</Group>)}
 
@@ -202,13 +179,6 @@ export function StrategyConfig({ s, onError }: { s: Snapshot; onError: (e: strin
         </div>
       )}
 
-      <Group>
-        <button className="w-full px-4 py-2.5 text-center text-[15px] text-neg"
-          onClick={() => confirm('Reset the paper wallet to 10 SOL and delete paper trade history?') &&
-            call('POST', '/api/paper/reset').catch((e) => onError((e as Error).message))}>
-          Reset paper wallet
-        </button>
-      </Group>
     </aside>
   );
 }
