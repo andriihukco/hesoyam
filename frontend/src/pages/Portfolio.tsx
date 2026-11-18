@@ -20,17 +20,22 @@ export function Portfolio({ s, onError, onOpen }: { s: Snapshot; onError: (e: st
   const [range, setRange] = useState<PortfolioRange>(readRange);
   const [p, setP] = useState<P | null>(null);
   const [filter, setFilter] = useState<'all' | 'win' | 'loss'>('all');
+  const [strategy, setStrategy] = useState('*');
   const refreshKey = `${s.stats.all.count}|${s.mode}`;
 
   useEffect(() => {
     try { localStorage.setItem(KEY, range); } catch { /* private mode */ }
-    call<P>('GET', `/api/portfolio?range=${range}`).then(setP, (e) => onError((e as Error).message));
+    // Ignore a slower answer for a range the user already left.
+    let live = true;
+    call<P>('GET', `/api/portfolio?range=${range}`).then((r) => live && setP(r), (e) => live && onError((e as Error).message));
+    return () => { live = false; };
   }, [range, refreshKey]);
 
-  const closed = useMemo(() => s.closed.filter((c) => {
-    const pnl = c.realizedSol - c.costSol;
-    return filter === 'all' || (filter === 'win' ? pnl > 0 : pnl <= 0);
-  }), [s.closed, filter]);
+  const strategies = useMemo(() => [...new Set((p?.closed ?? []).map((c) => c.strategy))], [p]);
+  const closed = useMemo(() => (p?.closed ?? []).filter((c) => {
+    const pnl = c.realized - c.cost;
+    return (filter === 'all' || (filter === 'win' ? pnl > 0 : pnl <= 0)) && (strategy === '*' || c.strategy === strategy);
+  }), [p, filter, strategy]);
 
   const st = p?.stats;
   const last = p?.equity.at(-1);
@@ -84,22 +89,30 @@ export function Portfolio({ s, onError, onOpen }: { s: Snapshot; onError: (e: st
         <Breakdown title="By exit" rows={p?.byExit ?? []} />
       </div>
 
-      <Group title="Closed trades" footer="Latest 30. Tap a trade to see its chart, including what the price did after the exit.">
-        <div className="row-sep p-2">
-          <Segmented fill label="Outcome" value={filter} onChange={setFilter}
-            options={[{ value: 'all', label: 'All' }, { value: 'win', label: 'Wins' }, { value: 'loss', label: 'Losses' }]} />
+      <Group title="Closed trades" footer="In the selected range, newest first (up to 200). Tap a trade to see its chart, including what the price did after the exit.">
+        <div className="row-sep flex flex-wrap items-center gap-2 p-2">
+          <div className="min-w-[200px] flex-1">
+            <Segmented fill label="Outcome" value={filter} onChange={setFilter}
+              options={[{ value: 'all', label: 'All' }, { value: 'win', label: 'Wins' }, { value: 'loss', label: 'Losses' }]} />
+          </div>
+          {strategies.length > 1 && (
+            <select value={strategy} onChange={(e) => setStrategy(e.target.value)} aria-label="Strategy" className="field px-2 py-1 text-[13px]">
+              <option value="*">All strategies</option>
+              {strategies.map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+          )}
         </div>
         {closed.map((c) => {
-          const pnl = c.realizedSol - c.costSol;
+          const pnl = c.realized - c.cost;
           return (
             <button key={c.id} type="button" onClick={() => onOpen(c.id)} className="row-sep flex w-full items-center gap-3 px-4 py-2 text-left text-[13px] active:bg-fill">
               <span className="mono w-24 shrink-0 truncate">{c.symbol ? `$${c.symbol}` : short(c.mint)}</span>
               <span className="min-w-0 flex-1 truncate text-label-2">
-                {c.preset ?? 'Custom'} · {c.closeReason}
+                {c.strategy} · {c.closeReason}
                 {c.followEnd === 'rugged' && <span className="ml-1 text-neg">· rugged after exit</span>}
               </span>
-              <span className={tone(pnl)}>{pct((pnl / c.costSol) * 100)}</span>
-              <span className="hidden w-10 text-right text-label-3 sm:inline">{c.closedAt ? ago(c.closedAt, s.serverTime) : ''}</span>
+              <span className={tone(pnl)}>{pct((pnl / c.cost) * 100)}</span>
+              <span className="hidden w-10 text-right text-label-3 sm:inline">{ago(c.closed, s.serverTime)}</span>
             </button>
           );
         })}

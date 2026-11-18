@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { Db, type ClosedRow } from '../src/db/db.js';
-import { buildPortfolio, exitGroup, rangeStart } from '../src/portfolio/portfolio.js';
+import { buildPortfolio, exitGroup, rangeStart, snapshotFrom } from '../src/portfolio/portfolio.js';
 
 const DAY = 86_400_000;
 const row = (o: Partial<ClosedRow>): ClosedRow => ({
   id: 1, mint: 'M', symbol: null, route: 'pump-curve', versionId: 1, cost: 0.1, realized: 0.1, ladder: 0,
-  opened: 0, closed: 1, closeReason: 'hard stop -16.4%', ...o,
+  opened: 0, closed: 1, closeReason: 'hard stop -16.4%', followEnd: null, ...o,
 });
 const snap = (ts: number, total: number, startingSol = 10) => ({ ts, cashSol: total, openSol: 0, totalSol: total, startingSol });
 const name = (id: number | null) => (id === null ? 'Custom' : `v${id}`);
@@ -55,6 +55,11 @@ describe('buildPortfolio', () => {
     expect(p.byExit.map((g) => [g.name, g.count])).toEqual([['hard stop', 2], ['tp', 1]]);
   });
 
+  it('returns closed trades newest first with strategy names', () => {
+    const p = buildPortfolio({ snapshots: [], closed: [row({ id: 1, closed: 10, versionId: 4 }), row({ id: 2, closed: 20, versionId: null })], versionName: name });
+    expect(p.closed.map((c) => [c.id, c.strategy])).toEqual([[2, 'Custom'], [1, 'v4']]);
+  });
+
   it('groups by version name and route', () => {
     const p = buildPortfolio({
       snapshots: [],
@@ -73,6 +78,8 @@ describe('helpers', () => {
   it('exitGroup normalises and handles null', () => {
     expect(exitGroup('Trailing stop -12.0% from peak')).toBe('trailing stop from peak');
     expect(exitGroup(null)).toBe('other');
+    expect(exitGroup('no price for 120s')).toBe('no price for');
+    expect(exitGroup('TP3 +120.0% (sell 100%)')).toBe('tp');
   });
   it('rangeStart 7d is now − 7 days, all is 0', () => {
     expect(rangeStart('7d', 10 * DAY)).toBe(3 * DAY);
@@ -81,7 +88,26 @@ describe('helpers', () => {
   });
 });
 
+describe('snapshotFrom', () => {
+  it('sums every wallet (main and all lanes) and every open position', () => {
+    const s = snapshotFrom([{ balanceSol: 9.5, startingSol: 10 }, { balanceSol: 10.2, startingSol: 10 }], [{ tokensHeld: 100, lastPriceSol: 0.004 }]);
+    expect(s.cashSol).toBeCloseTo(19.7, 9);
+    expect(s.openSol).toBeCloseTo(0.4, 9);
+    expect(s.totalSol).toBeCloseTo(20.1, 9);
+    expect(s.startingSol).toBe(20);
+  });
+});
+
 describe('db storage', () => {
+  it('clearMode also deletes that mode\'s equity snapshots', () => {
+    const db = new Db(':memory:');
+    db.addEquitySnapshot({ ts: 1, mode: 'paper', cashSol: 9, openSol: 0, totalSol: 9, startingSol: 10 });
+    db.addEquitySnapshot({ ts: 1, mode: 'live', cashSol: 1, openSol: 0, totalSol: 1, startingSol: 1 });
+    db.clearMode('paper');
+    expect(db.equitySnapshots('paper', 0)).toEqual([]);
+    expect(db.equitySnapshots('live', 0)).toHaveLength(1);
+  });
+
   it('equity snapshots round-trip and filter by mode and since', () => {
     const db = new Db(':memory:');
     db.addEquitySnapshot({ ts: 1, mode: 'paper', cashSol: 9, openSol: 1, totalSol: 10, startingSol: 10 });
@@ -112,7 +138,7 @@ describe('db storage', () => {
     db.sql.prepare(`INSERT INTO positions(mint, symbol, mode, route, status, opened_at, closed_at, decimals, cost_sol, entry_price, initial_tokens,
       tokens_held, realized_sol, ladder_done, peak_price, last_price, last_activity_at, close_reason, version_id)
       VALUES('M', 'S', 'paper', 'jupiter', 'closed', 5, 200, 6, 0.1, 1, 1, 0, 0.12, 1, 1, 1, 0, 'TP1', 3)`).run();
-    expect(db.closedSince('paper', 100)).toEqual([{ id: 1, mint: 'M', symbol: 'S', route: 'jupiter', versionId: 3, cost: 0.1, realized: 0.12, ladder: 1, opened: 5, closed: 200, closeReason: 'TP1' }]);
+    expect(db.closedSince('paper', 100)).toEqual([{ id: 1, mint: 'M', symbol: 'S', route: 'jupiter', versionId: 3, cost: 0.1, realized: 0.12, ladder: 1, opened: 5, closed: 200, closeReason: 'TP1', followEnd: null }]);
     expect(db.closedSince('paper', 300)).toEqual([]);
   });
 });

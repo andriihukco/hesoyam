@@ -102,4 +102,8 @@ export interface Portfolio {
   daily: { day: string; pnl: number; count: number; wins: number }[];
   byVersion: PortfolioGroup[]; byRoute: PortfolioGroup[]; byExit: PortfolioGroup[];
   stats: AllTimeStats;
+  closed: {
+    id: number; mint: string; symbol: string | null; route: string; versionId: number | null; cost: number; realized: number;
+    ladder: number; opened: number; closed: number; closeReason: string | null; followEnd: string | null; strategy: string;
+  }[];
 }

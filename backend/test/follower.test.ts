@@ -9,18 +9,19 @@ function setup(opts: { canPoll?: () => boolean; poll?: () => number | null } = {
   const ends: { id: number; reason: FollowEnd }[] = [];
   const released: string[] = [];
   let polls = 0;
+  const sizes: { tokens: number; decimals: number }[] = [];
   const f = new PostExitFollower({
     now: () => clock.t,
-    pollPrice: async () => { polls++; return opts.poll ? opts.poll() : 1; },
+    pollPrice: async (_m, size) => { polls++; sizes.push(size); return opts.poll ? opts.poll() : 1; },
     canPoll: opts.canPoll,
     addTick: (id, ts, price) => ticks.push({ id, ts, price }),
     end: (id, reason) => ends.push({ id, reason }),
     release: (m) => released.push(m),
   });
   const at = (dt: number) => { clock.t = 1_000_000 + dt; };
-  return { f, clock, at, ticks, ends, released, polls: () => polls };
+  return { f, clock, at, ticks, ends, released, polls: () => polls, sizes };
 }
-const curve = (id = 1, mint = 'M') => ({ positionId: id, mint, route: 'pump-curve' as const, closedAt: 1_000_000, exitPrice: 1 });
+const curve = (id = 1, mint = 'M') => ({ positionId: id, mint, route: 'pump-curve' as const, closedAt: 1_000_000, exitPrice: 1, tokens: 500, decimals: 6 });
 
 describe('PostExitFollower', () => {
   it('writes thinned ticks after exit', () => {
@@ -70,7 +71,7 @@ describe('PostExitFollower', () => {
   });
 
   it('ends stale after 30 min without price', async () => {
-    const { f, at, ends } = setup();
+    const { f, at, ends } = setup({ poll: () => null });
     f.follow(curve());
     at(30 * MIN - 1); await f.tick();
     expect(ends).toEqual([]);
@@ -100,7 +101,7 @@ describe('PostExitFollower', () => {
   });
 
   it('two positions on one mint release only after both end', async () => {
-    const { f, at, released, ends } = setup();
+    const { f, at, released, ends } = setup({ poll: () => null });
     f.follow(curve(1));
     f.follow({ ...curve(2), closedAt: 1_000_000 + 20 * MIN });
     at(30 * MIN); await f.tick();
@@ -119,12 +120,53 @@ describe('PostExitFollower', () => {
   });
 
   it('a follow resumed after restart starts its stale clock at resume time', async () => {
-    const { f, at, ends } = setup();
+    const { f, at, ends } = setup({ poll: () => null });
     at(13 * 60 * MIN);
     f.follow({ ...curve(), resumedAt: 1_000_000 + 13 * 60 * MIN });
     at(13 * 60 * MIN + 5_000); await f.tick();
     expect(ends).toEqual([]);
     at(13 * 60 * MIN + 30 * MIN); await f.tick();
     expect(ends).toEqual([{ id: 1, reason: 'stale' }]);
+  });
+
+  it('passes the sold size to pollPrice so the price is a comparable sell quote', async () => {
+    const { f, at, sizes } = setup();
+    f.follow({ ...curve(), route: 'jupiter' });
+    at(0); await f.tick();
+    expect(sizes).toEqual([{ tokens: 500, decimals: 6 }]);
+  });
+
+  it('polls a curve coin after 2 min without price (it may have graduated)', async () => {
+    const { f, at, polls } = setup();
+    f.follow(curve());
+    at(119_000); await f.tick();
+    expect(polls()).toBe(0);
+    at(120_000); await f.tick();
+    expect(polls()).toBe(1);
+  });
+
+  it('big moves still need 1 s between ticks', () => {
+    const { f, at, ticks } = setup();
+    f.follow(curve());
+    at(1000); f.onPrice('M', 1);
+    at(1300); f.onPrice('M', 1.5);
+    at(2000); f.onPrice('M', 2);
+    expect(ticks.map((t) => t.ts - 1_000_000)).toEqual([1000, 2000]);
+  });
+
+  it('clear drops all follows without ending them', () => {
+    const { f, ends } = setup();
+    f.follow(curve(1));
+    f.follow(curve(2, 'N'));
+    f.clear();
+    expect(f.isFollowing('M') || f.isFollowing('N')).toBe(false);
+    expect(ends).toEqual([]);
+  });
+
+  it('seeds the peak on resume so a pump-then-dump still counts as rugged', () => {
+    const { f, at, ends } = setup();
+    f.follow({ ...curve(), resumedAt: 1_000_000, peak: 5 });
+    at(1000); f.onPrice('M', 0.5);
+    expect(ends).toEqual([{ id: 1, reason: 'rugged' }]);
   });
 });

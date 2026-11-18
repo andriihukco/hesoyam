@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS equity_snapshots (
   ts INTEGER NOT NULL, mode TEXT NOT NULL, cash_sol REAL NOT NULL, open_sol REAL NOT NULL, total_sol REAL NOT NULL,
   starting_sol REAL NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS equity_snapshots_mode_ts ON equity_snapshots(mode, ts);
+CREATE INDEX IF NOT EXISTS positions_mode_closed ON positions(mode, closed_at);
 CREATE TABLE IF NOT EXISTS agent_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, agent TEXT NOT NULL, kind TEXT NOT NULL,
   version_id INTEGER, detail TEXT NOT NULL);
@@ -64,7 +65,7 @@ CREATE TABLE IF NOT EXISTS rug_wallets (
 
 export interface ClosedRow {
   id: number; mint: string; symbol: string | null; route: string; versionId: number | null; cost: number; realized: number;
-  ladder: number; opened: number; closed: number; closeReason: string | null;
+  ladder: number; opened: number; closed: number; closeReason: string | null; followEnd: string | null;
 }
 
 export interface ActivityRow { id: number; ts: number; level: 'info' | 'warn' | 'trade'; text: string }
@@ -268,11 +269,11 @@ export class Db {
 
   closedSince(mode: string, sinceTs: number): ClosedRow[] {
     return (this.sql.prepare(
-      `SELECT id, mint, symbol, route, version_id, cost_sol, realized_sol, ladder_done, opened_at, closed_at, close_reason
+      `SELECT id, mint, symbol, route, version_id, cost_sol, realized_sol, ladder_done, opened_at, closed_at, close_reason, follow_end
        FROM positions WHERE status = 'closed' AND mode = ? AND closed_at >= ? ORDER BY closed_at, id`,
     ).all(mode, sinceTs) as Row[]).map((r) => ({
       id: r.id, mint: r.mint, symbol: r.symbol, route: r.route, versionId: r.version_id ?? null, cost: r.cost_sol,
-      realized: r.realized_sol, ladder: r.ladder_done, opened: r.opened_at, closed: r.closed_at, closeReason: r.close_reason,
+      realized: r.realized_sol, ladder: r.ladder_done, opened: r.opened_at, closed: r.closed_at, closeReason: r.close_reason, followEnd: r.follow_end ?? null,
     }));
   }
 
@@ -285,11 +286,26 @@ export class Db {
   }
 
   /** Closed positions still to follow after a restart: closed since `sinceTs` and not ended. */
-  followCandidates(sinceTs: number): { id: number; mint: string; route: Route; closedAt: number; lastPrice: number }[] {
+  followCandidates(sinceTs: number): {
+    id: number; mint: string; route: Route; closedAt: number; lastPrice: number; decimals: number;
+    exitPrice: number; exitTokens: number; peak: number | null; followUntil: number | null;
+  }[] {
     return (this.sql.prepare(
-      `SELECT id, mint, route, closed_at, last_price FROM positions
-       WHERE status = 'closed' AND follow_end IS NULL AND closed_at >= ? ORDER BY closed_at`,
-    ).all(sinceTs) as Row[]).map((r) => ({ id: r.id, mint: r.mint, route: r.route, closedAt: r.closed_at, lastPrice: r.last_price }));
+      `SELECT p.id, p.mint, p.route, p.closed_at, p.last_price, p.decimals, p.initial_tokens, p.follow_until,
+         (SELECT price FROM trades t WHERE t.position_id = p.id AND t.side = 'sell' ORDER BY t.ts DESC LIMIT 1) AS exit_price,
+         (SELECT tokens FROM trades t WHERE t.position_id = p.id AND t.side = 'sell' ORDER BY t.ts DESC LIMIT 1) AS exit_tokens,
+         (SELECT MAX(price) FROM price_ticks k WHERE k.position_id = p.id AND k.ts > p.closed_at) AS peak
+       FROM positions p WHERE p.status = 'closed' AND p.follow_end IS NULL AND p.closed_at >= ? ORDER BY p.closed_at`,
+    ).all(sinceTs) as Row[]).map((r) => ({
+      id: r.id, mint: r.mint, route: r.route, closedAt: r.closed_at, lastPrice: r.last_price, decimals: r.decimals,
+      exitPrice: r.exit_price ?? r.last_price, exitTokens: r.exit_tokens ?? r.initial_tokens, peak: r.peak ?? null, followUntil: r.follow_until ?? null,
+    }));
+  }
+
+  /** Price of the last sell fill (the exit), or null. */
+  exitPrice(positionId: number): number | null {
+    const r = this.sql.prepare("SELECT price FROM trades WHERE position_id = ? AND side = 'sell' ORDER BY ts DESC LIMIT 1").get(positionId) as Row | undefined;
+    return r?.price ?? null;
   }
 
   addTick(positionId: number, ts: number, price: number) {
@@ -461,5 +477,6 @@ export class Db {
     this.sql.prepare('DELETE FROM trades WHERE position_id IN (SELECT id FROM positions WHERE mode = ?)').run(mode);
     this.sql.prepare('DELETE FROM price_ticks WHERE position_id IN (SELECT id FROM positions WHERE mode = ?)').run(mode);
     this.sql.prepare('DELETE FROM positions WHERE mode = ?').run(mode);
+    this.sql.prepare('DELETE FROM equity_snapshots WHERE mode = ?').run(mode);
   }
 }

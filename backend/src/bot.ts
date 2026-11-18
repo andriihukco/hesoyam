@@ -19,7 +19,7 @@ import { authorityChecks, holderCheck, holderTop10, loadMint, rugcheck, rugcheck
 import { SignalRecorder, canUntrack } from './recording/recorder.js';
 import { captureFacts } from './recording/facts.js';
 import { PostExitFollower } from './recording/follower.js';
-import { RANGES, buildPortfolio, rangeStart, type Range } from './portfolio/portfolio.js';
+import { RANGES, buildPortfolio, rangeStart, snapshotFrom, type Range } from './portfolio/portfolio.js';
 import { momentum } from './risk/momentum.js';
 import { analyzeHolders, heliusKey } from './holders/analyzer.js';
 import { summarize } from './holders/summary.js';
@@ -147,7 +147,7 @@ export class Bot extends EventEmitter {
     });
     this.follower = new PostExitFollower({
       now: Date.now,
-      pollPrice: (m) => this.recordPrice(m),
+      pollPrice: (m, size) => this.followPrice(m, size),
       canPoll: () => Date.now() >= this.jupCooldownUntil,
       addTick: (id, ts, price) => this.db.addTick(id, ts, price),
       end: (id, reason) => this.db.setFollowEnd(id, reason, Date.now()),
@@ -209,7 +209,11 @@ export class Bot extends EventEmitter {
     // Resume post-exit tracking after a restart (positions closed in the last 24 h, not ended yet).
     for (const c of this.db.followCandidates(Date.now() - 24 * 3_600_000)) {
       this.feed.track(c.mint);
-      this.follower.follow({ positionId: c.id, mint: c.mint, route: c.route, closedAt: c.closedAt, exitPrice: c.lastPrice, resumedAt: Date.now() });
+      if (!c.followUntil) this.db.setFollowUntil(c.id, c.closedAt + 24 * 3_600_000);
+      this.follower.follow({
+        positionId: c.id, mint: c.mint, route: c.route, closedAt: c.closedAt, exitPrice: c.exitPrice,
+        tokens: c.exitTokens, decimals: c.decimals, resumedAt: Date.now(), peak: c.peak ?? undefined,
+      });
     }
     this.snapshotEquity();
     this.timers.push(setInterval(() => this.recorder.prune(), 3_600_000));
@@ -342,6 +346,21 @@ export class Bot extends EventEmitter {
     try {
       return await this.quotePrice(mint, s);
     } catch {
+      return null;
+    }
+  }
+
+  /** Post-exit poll: sell quote for the exit size (curve or Jupiter), same basis as the exit fill. */
+  private async followPrice(mint: string, size: { tokens: number; decimals: number }): Promise<number | null> {
+    try {
+      const s = this.strategy;
+      const raw = BigInt(Math.floor(size.tokens * 10 ** size.decimals));
+      if (raw <= 0n) return null;
+      const q = await this.quoter.quoteSell(mint, raw, size.decimals, s.pumpFeeBps, s.maxSlippagePct * 100);
+      const px = Number(q.outRaw) / LAMPORTS / size.tokens;
+      return px > 0 ? px : null;
+    } catch (e) {
+      if (/429/.test(errMsg(e))) this.jupCooldownUntil = Date.now() + 15_000;
       return null;
     }
   }
@@ -482,12 +501,12 @@ export class Bot extends EventEmitter {
     if (!position) throw new Error('position not found');
     const ticks = this.db.ticks(id);
     let postExit: { peakPct: number; lowPct: number } | null = null;
-    if (position.closedAt && position.lastPriceSol > 0) {
-      const after = ticks.filter((t) => t.ts > position.closedAt!).map((t) => t.price);
-      if (after.length) {
-        const exit = position.lastPriceSol;
-        postExit = { peakPct: (Math.max(...after) / exit - 1) * 100, lowPct: (Math.min(...after) / exit - 1) * 100 };
-      }
+    // Compared with the exit fill (a sell quote), the same basis the post-exit polls use.
+    const exit = position.closedAt ? (this.db.exitPrice(id) ?? position.lastPriceSol) : 0;
+    if (position.closedAt && exit > 0) {
+      let hi = -Infinity, lo = Infinity, n = 0;
+      for (const t of ticks) if (t.ts > position.closedAt) { hi = Math.max(hi, t.price); lo = Math.min(lo, t.price); n++; }
+      if (n) postExit = { peakPct: (hi / exit - 1) * 100, lowPct: (lo / exit - 1) * 100 };
     }
     return {
       position,
@@ -504,9 +523,10 @@ export class Bot extends EventEmitter {
   /** Wallet value now (cash + open positions at last price); stored every 5 min and on each close. */
   private snapshotEquity() {
     try {
-      const w = this.walletSummary();
-      const openSol = this.db.openPositions().reduce((a, p) => a + p.tokensHeld * p.lastPriceSol, 0);
-      this.db.addEquitySnapshot({ ts: Date.now(), mode: this.mode, cashSol: w.balanceSol, openSol, totalSol: w.balanceSol + openSol, startingSol: w.startingSol });
+      // Every wallet (main + all Arena lanes), whatever Arena's state, so toggling it does not move the line.
+      const wallets = [this.paper, ...this.arenaPresets().map((p) => this.presetLane(p).paper)]
+        .map((w) => ({ balanceSol: w.balanceSol(), startingSol: w.startingSol() }));
+      this.db.addEquitySnapshot({ ts: Date.now(), mode: this.mode, ...snapshotFrom(wallets, this.db.openPositions()) });
     } catch (e) {
       log('portfolio', `snapshot failed: ${errMsg(e)}`);
     }
@@ -755,7 +775,7 @@ export class Bot extends EventEmitter {
         }
         this.markOkAt.delete(p.id);
         this.db.setFollowUntil(p.id, now + 24 * 3_600_000);
-        this.follower.follow({ positionId: p.id, mint: p.mint, route: p.route, closedAt: now, exitPrice: fill.priceSol });
+        this.follower.follow({ positionId: p.id, mint: p.mint, route: p.route, closedAt: now, exitPrice: fill.priceSol, tokens: fill.tokens, decimals: p.decimals });
         this.snapshotEquity();
         this.untrackIfIdle(p.mint);
       }
@@ -990,8 +1010,10 @@ export class Bot extends EventEmitter {
   resetPaper() {
     if (this.db.openPositions().length) throw new Error('close open positions first');
     this.db.clearMode('paper');
+    this.follower.clear();
     this.paper.reset(STARTING_PAPER_SOL);
     for (const p of this.presets()) this.presetLane(p).paper.reset(STARTING_PAPER_SOL);
+    this.snapshotEquity();
     this.arena = { ...this.arena, leader: null };
     this.db.setSetting('arena', this.arena);
     this.note('info', `paper wallets reset to ${STARTING_PAPER_SOL} SOL (main and every arena lane)`);

@@ -11,7 +11,7 @@ export function rangeStart(range: Range, now: number): number {
 /** Close reasons carry numbers ("hard stop -16.4%"); group by the words only. */
 export function exitGroup(reason: string | null): string {
   if (!reason) return 'other';
-  return reason.toLowerCase().replace(/[-+]?\d+(\.\d+)?%?/g, ' ').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim() || 'other';
+  return reason.toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[-+]?\d+(\.\d+)?(%|s\b)?/g, ' ').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim() || 'other';
 }
 
 export interface Group { name: string; count: number; pnl: number; winRate: number }
@@ -24,6 +24,15 @@ export interface Portfolio {
   byRoute: Group[];
   byExit: Group[];
   stats: AllTimeStats;
+  /** Closed trades in range, newest first (max 200). */
+  closed: (ClosedRow & { strategy: string })[];
+}
+
+/** One equity snapshot over every wallet (main + all Arena lanes), so toggling Arena does not move the line. */
+export function snapshotFrom(wallets: { balanceSol: number; startingSol: number }[], open: { tokensHeld: number; lastPriceSol: number }[]) {
+  const cashSol = wallets.reduce((a, w) => a + w.balanceSol, 0);
+  const openSol = open.reduce((a, p) => a + p.tokensHeld * p.lastPriceSol, 0);
+  return { cashSol, openSol, totalSol: cashSol + openSol, startingSol: wallets.reduce((a, w) => a + w.startingSol, 0) };
 }
 
 function groupBy(rows: ClosedRow[], key: (r: ClosedRow) => string): Group[] {
@@ -71,6 +80,7 @@ export function buildPortfolio(i: {
     byVersion: groupBy(i.closed, (r) => i.versionName(r.versionId)),
     byRoute: groupBy(i.closed, (r) => (r.route === 'pump-curve' ? 'Curve' : 'Jupiter')),
     byExit: groupBy(i.closed, (r) => exitGroup(r.closeReason)),
+    closed: [...i.closed].reverse().slice(0, 200).map((r) => ({ ...r, strategy: i.versionName(r.versionId) })),
     stats: computeStats(i.closed.map((r) => ({
       id: r.id, symbol: r.symbol, mint: r.mint, cost: r.cost, realized: r.realized, ladder: r.ladder, opened: r.opened, closed: r.closed,
     }))),

@@ -67,6 +67,8 @@ export function Settings({ s, onError }: { s: Snapshot; onError: (e: string) => 
   const copy = () => void navigator.clipboard?.writeText(shown ?? '').then(() => setCopied(true));
   const ts = s.tokenStatus;
   const [sec, setSec] = useState<SecKey | null>(null);
+  // A freshly rotated token is shown only until the user leaves the Security page.
+  useEffect(() => { if (sec !== 'security') setShown(null); }, [sec]);
   const sections: { key: SecKey; label: string; summary: string }[] = [
     { key: 'mode', label: 'Trading mode', summary: s.mode === 'paper' ? 'Paper' : 'Live' },
     { key: 'telegram', label: 'Telegram folders', summary: `${s.telegram.folders.length} folder${s.telegram.folders.length === 1 ? '' : 's'} · ${s.telegram.state}` },
