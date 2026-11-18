@@ -12,12 +12,16 @@ try {
 const emptyToUndef = (v: unknown) => (v === '' ? undefined : v);
 const bool = (def: boolean) =>
   z.preprocess((v) => (v === undefined || v === '' ? def : String(v).toLowerCase() === 'true'), z.boolean());
+/** Operator flag: 1 / true / yes (any case) = on; anything else = off. Only for flags where "=1" is the documented form. */
+export const flag = z.preprocess((v) => ['1', 'true', 'yes'].includes(String(v ?? '').trim().toLowerCase()), z.boolean());
 const opt = <T extends z.ZodType>(t: T) => z.preprocess(emptyToUndef, t.optional());
 
 const EnvSchema = z.object({
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().default(8787),
   DASHBOARD_TOKEN: opt(z.string()),
+  /** Lock-out recovery: on boot, drop a token rotated in the dashboard so DASHBOARD_TOKEN works again. Remove after use. */
+  DASHBOARD_TOKEN_RESET: flag,
   DB_PATH: z.string().default('data/1mbot.sqlite'),
   TG_API_ID: opt(z.coerce.number().int()),
   TG_API_HASH: opt(z.string()),

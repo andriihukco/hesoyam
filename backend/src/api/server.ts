@@ -3,17 +3,20 @@ import { resolve } from 'node:path';
 import Fastify, { type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
-import { env, ROOT_DIR } from '../config/env.js';
+import { ROOT_DIR } from '../config/env.js';
 import type { Bot } from '../bot.js';
-import { errMsg } from '../lib/util.js';
+import { errMsg, log } from '../lib/util.js';
+import type { DashboardToken } from './token.js';
 
-function authorized(req: FastifyRequest): boolean {
-  if (!env.DASHBOARD_TOKEN) return true;
+function presented(req: FastifyRequest): string | undefined {
+  const h = req.headers['x-dashboard-token'];
   const q = (req.query as Record<string, string> | undefined)?.token;
-  return req.headers['x-dashboard-token'] === env.DASHBOARD_TOKEN || q === env.DASHBOARD_TOKEN;
+  return (typeof h === 'string' && h) || q || undefined;
 }
 
-export async function buildServer(bot: Bot) {
+export async function buildServer(bot: Bot, token: DashboardToken) {
+  const authorized = (req: FastifyRequest) => token.check(presented(req));
+  const snapshot = () => ({ ...bot.snapshot(), tokenStatus: token.status() });
   const app = Fastify({ logger: false });
   await app.register(fastifyWebsocket);
 
@@ -31,7 +34,7 @@ export async function buildServer(bot: Bot) {
     }
   };
 
-  app.get('/api/state', async () => bot.snapshot());
+  app.get('/api/state', async () => snapshot());
   app.put('/api/strategy', async (req) => run(() => bot.setStrategy(req.body as never)));
   app.post('/api/presets/:id/apply', async (req) => run(() => bot.applyPreset((req.params as { id: string }).id)));
   app.get('/api/strategies', async () => run(() => bot.store.list()));
@@ -75,6 +78,16 @@ export async function buildServer(bot: Bot) {
   app.delete('/api/telegram/folders', async (req) => run(() => bot.removeTelegramFolder(String((req.body as { link?: string })?.link ?? ''))));
   app.get('/api/coin/:mint', async (req) => run(() => bot.coinInfo((req.params as { mint: string }).mint)));
   app.post('/api/paper/reset', async () => run(() => bot.resetPaper()));
+  // Rotate the dashboard token: the old one stops working now. Open dashboards (already authorized
+  // sockets) receive the new token so they keep working; closed devices must enter it again.
+  app.post('/api/token/rotate', async () =>
+    run(() => {
+      const t = token.rotate();
+      const msg = JSON.stringify({ type: 'token', token: t });
+      for (const c of clients) c.send(msg);
+      log('auth', 'dashboard token rotated; previous token revoked');
+      return { token: t };
+    }));
 
   // Push a full snapshot on change, throttled to 2/s, plus a heartbeat.
   const clients = new Set<{ send: (s: string) => void }>();
@@ -82,7 +95,7 @@ export async function buildServer(bot: Bot) {
   bot.on('changed', () => (dirty = true));
   const push = () => {
     if (!clients.size) return;
-    const msg = JSON.stringify({ type: 'state', data: bot.snapshot() });
+    const msg = JSON.stringify({ type: 'state', data: snapshot() });
     for (const c of clients) c.send(msg);
     dirty = false;
   };
@@ -91,7 +104,7 @@ export async function buildServer(bot: Bot) {
 
   app.get('/ws', { websocket: true }, (socket) => {
     clients.add(socket);
-    socket.send(JSON.stringify({ type: 'state', data: bot.snapshot() }));
+    socket.send(JSON.stringify({ type: 'state', data: snapshot() }));
     socket.on('close', () => clients.delete(socket));
   });
 

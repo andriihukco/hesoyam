@@ -2,6 +2,7 @@ import { env } from './config/env.js';
 import { Db } from './db/db.js';
 import { Bot } from './bot.js';
 import { buildServer } from './api/server.js';
+import { DashboardToken } from './api/token.js';
 import { log } from './lib/util.js';
 
 if (env.HOST !== '127.0.0.1' && env.HOST !== 'localhost' && !env.DASHBOARD_TOKEN) {
@@ -11,7 +12,9 @@ if (env.HOST !== '127.0.0.1' && env.HOST !== 'localhost' && !env.DASHBOARD_TOKEN
 
 const db = new Db(env.DB_PATH);
 const bot = new Bot(db);
-const app = await buildServer(bot);
+const token = new DashboardToken(db, { envToken: env.DASHBOARD_TOKEN, reset: env.DASHBOARD_TOKEN_RESET });
+if (env.DASHBOARD_TOKEN_RESET) log('boot', 'DASHBOARD_TOKEN_RESET is set: rotated dashboard token cleared, DASHBOARD_TOKEN works again. Remove the flag after you log in.');
+const app = await buildServer(bot, token);
 await app.listen({ host: env.HOST, port: env.PORT });
 log('boot', `dashboard API on http://${env.HOST}:${env.PORT}`);
 await bot.start();
