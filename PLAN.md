@@ -5,6 +5,8 @@ Paper trading first; live trading only after paper results justify it.
 
 Status: **approved 2026-11-08 (all defaults in §8 accepted). Phases 0–5 built; phase 6 (paper soak) next.**
 
+Next: strategies, replay and self-improving agents — design `docs/superpowers/specs/2026-11-18-strategies-agents-design.md`; phase 1 (signal recording, strategy versions, Strategies & Settings pages) in `docs/superpowers/plans/2026-11-18-phase1-strategies-recording.md`.
+
 ## Run
 
 ```
@@ -13,7 +15,7 @@ npm install
 npm run tg:login             # once, interactive; paste printed TG_SESSION into .env
 npm run dev                  # API :8787 + UI :5173 (hot reload)
 npm start                    # or: build UI and serve everything on :8787
-npm test                     # 45 unit tests
+npm test                     # backend + frontend unit tests
 ```
 
 ## Findings during build (2026-11-08, verified against mainnet)

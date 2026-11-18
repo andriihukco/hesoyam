@@ -95,6 +95,10 @@ Service → Volumes → mount path `/app/data`. Default `DB_PATH=data/1mbot.sqli
 - `TG_API_ID`, `TG_API_HASH`, `TG_SESSION`, `TG_FOLDER_LINKS`, `TG_CHANNELS`, `TG_AUTO_JOIN` copied from local `.env`
 - `RPC_ENDPOINTS`, `PUMPPORTAL_WS_URL`, `PUMPPORTAL_API_KEY`, `JUPITER_API_URL`, `JUPITER_API_KEY`, `RUGCHECK_API_URL`, `DEXSCREENER_API_URL` as needed
 - `LIVE_TRADING_ENABLED=false`
+- Hard limits (phase 1+; read-only in the dashboard, agents cannot change them): `AGENT_LIVE_ENABLED=false`, `LIVE_MAX_BUY_SOL`, `LIVE_MAX_DAILY_LOSS_SOL`, `LIVE_MAX_OPEN`, `LIVE_CANARY_BUY_SOL`, `LIVE_ROLLBACK_LOSS_SOL` (leave empty until the live engine exists)
+- `GEMINI_API_KEY`, `GEMINI_MODEL` (phase 4 advisor; set as a Railway secret, never in the repo)
+
+The signal recorder (phase 1) writes `signal_paths` / `signal_facts` into the same SQLite file on the volume, so it keeps collecting replay data 24/7 once deployed.
 
 - [ ] **Step 4: Generate a public domain**
 
