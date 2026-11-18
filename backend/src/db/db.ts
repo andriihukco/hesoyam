@@ -30,6 +30,27 @@ CREATE TABLE IF NOT EXISTS trades (
   latency_ms INTEGER NOT NULL, reason TEXT NOT NULL, ts INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS activity (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, level TEXT NOT NULL, text TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS strategies (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, built_in INTEGER NOT NULL,
+  archived INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS strategy_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, strategy_id TEXT NOT NULL REFERENCES strategies(id), version INTEGER NOT NULL,
+  parent_id INTEGER, values_json TEXT NOT NULL,
+  author TEXT NOT NULL CHECK (author IN ('user', 'optimizer', 'advisor')), note TEXT NOT NULL,
+  stage TEXT NOT NULL CHECK (stage IN ('draft', 'replay-passed', 'paper', 'live-canary', 'live', 'retired')),
+  created_at INTEGER NOT NULL, UNIQUE (strategy_id, version));
+CREATE TABLE IF NOT EXISTS signal_paths (
+  mint TEXT NOT NULL, ts INTEGER NOT NULL, price REAL, trades INTEGER NOT NULL, buy_sol REAL NOT NULL, sell_sol REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS signal_paths_mint_ts ON signal_paths(mint, ts);
+CREATE TABLE IF NOT EXISTS signal_facts (
+  mint TEXT PRIMARY KEY, decimals INTEGER, route_at_first TEXT, mint_auth_off INTEGER, freeze_auth_off INTEGER,
+  top10_pct REAL, rugcheck TEXT, captured_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS replay_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, version_id INTEGER NOT NULL, from_ts INTEGER NOT NULL, to_ts INTEGER NOT NULL,
+  split TEXT NOT NULL, metrics TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS agent_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, agent TEXT NOT NULL, kind TEXT NOT NULL,
+  version_id INTEGER, detail TEXT NOT NULL);
 `;
 
 export interface ActivityRow { id: number; ts: number; level: 'info' | 'warn' | 'trade'; text: string }
@@ -123,6 +144,7 @@ export class Db {
     if (!cols.includes('preset')) this.sql.exec('ALTER TABLE positions ADD COLUMN preset TEXT');
     if (!cols.includes('lane')) this.sql.exec('ALTER TABLE positions ADD COLUMN lane TEXT');
     if (!cols.includes('rules')) this.sql.exec('ALTER TABLE positions ADD COLUMN rules TEXT');
+    if (!cols.includes('version_id')) this.sql.exec('ALTER TABLE positions ADD COLUMN version_id INTEGER');
   }
 
   getSetting<T>(key: string): T | undefined {
