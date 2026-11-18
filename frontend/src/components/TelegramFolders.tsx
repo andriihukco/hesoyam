@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { call } from '../lib/api';
 import type { Snapshot } from '../lib/types';
 import { Group } from './ui';
+import { useConfirm } from './ConfirmSheet';
 
 /** Add or remove shared Telegram folder links (t.me/addlist/…) the bot watches. Changes apply without a restart. */
 export function TelegramFolders({ s, onError }: { s: Snapshot; onError: (e: string) => void }) {
@@ -22,9 +23,11 @@ export function TelegramFolders({ s, onError }: { s: Snapshot; onError: (e: stri
       setBusy(false);
     }
   };
-  const remove = (l: string, name: string) =>
-    confirm(`Stop watching "${name}"? You stay in its channels on Telegram.`) &&
-    call('DELETE', '/api/telegram/folders', { link: l }).catch((e) => onError((e as Error).message));
+  const ask = useConfirm();
+  const remove = async (l: string, name: string) => {
+    if (!(await ask({ title: `Stop watching "${name}"?`, body: 'You stay in its channels on Telegram.', confirm: 'Stop watching', danger: true }))) return;
+    await call('DELETE', '/api/telegram/folders', { link: l }).catch((e) => onError((e as Error).message));
+  };
 
   return (
     <Group title="Telegram folders"

@@ -4,7 +4,7 @@ import { useTheme } from './lib/theme';
 import { Header, StatusStrip } from './components/Header';
 import { AlphaLog } from './components/AlphaLog';
 import { Positions } from './components/Positions';
-import { StrategyConfig } from './components/StrategyConfig';
+import { Strategies } from './pages/Strategies';
 import { TabBar, TABS, type Tab } from './components/TabBar';
 import { SideNav } from './components/SideNav';
 import { PositionDetailSheet } from './components/PositionDetail';
@@ -101,7 +101,7 @@ function Shell() {
           )}
           {tab === 'strategies' && (
             <section aria-label="Strategies" className="mx-auto max-w-[760px]">
-              <StrategyConfig s={snap} onError={onError} />
+              <Strategies s={snap} onError={onError} />
             </section>
           )}
           {tab === 'settings' && (

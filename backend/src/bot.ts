@@ -881,7 +881,6 @@ export class Bot extends EventEmitter {
       strategy: this.strategy,
       presets: this.presets(),
       activePresetId: this.activePreset()?.id ?? null,
-      presetStats: this.db.statsByPreset(this.mode),
       versionStats: this.db.statsByVersion(this.mode),
       hardLimits: {
         agentLiveEnabled: env.AGENT_LIVE_ENABLED,

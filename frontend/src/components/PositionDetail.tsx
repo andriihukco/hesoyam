@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { call, dur, pct, px, short, sol, tone } from '../lib/api';
 import type { PositionDetail, Snapshot } from '../lib/types';
 import { PriceChart } from './PriceChart';
+import { useConfirm } from './ConfirmSheet';
 
 /** Bottom sheet on phones, centred dialog on desktop: chart, numbers and every fill of one position. */
 export function PositionDetailSheet({ id, s, onClose, onError }: { id: number; s: Snapshot; onClose: () => void; onError: (e: string) => void }) {
@@ -72,8 +73,11 @@ function Body({ d, s, onClose, onError }: { d: PositionDetail; s: Snapshot; onCl
   const partial = coverFrom !== null && coverFrom > 30_000;
   const low = rois.length ? Math.min(...rois.map((x) => x.r)) : null;
   const name = p.symbol ? `$${p.symbol}` : short(p.mint);
-  const sell = () =>
-    confirm(`Sell ${name} now?`) && call('POST', `/api/positions/${p.id}/sell`).catch((e) => onError((e as Error).message));
+  const ask = useConfirm();
+  const sell = async () => {
+    if (!(await ask({ title: `Sell ${name} now?`, body: 'Sells the whole position at the current price.', confirm: 'Sell', danger: true }))) return;
+    await call('POST', `/api/positions/${p.id}/sell`).catch((e) => onError((e as Error).message));
+  };
 
   const stats: [string, ReactNode][] = [
     ['Invested', `${sol(p.costSol, 4)} SOL`],
@@ -114,7 +118,7 @@ function Body({ d, s, onClose, onError }: { d: PositionDetail; s: Snapshot; onCl
             <div className={`text-[34px] font-bold leading-none tracking-tight ${tone(pnl)}`}>{pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%</div>
           </div>
           <div className={`pb-1 text-[17px] font-semibold ${tone(pnl)}`}>{pnl >= 0 ? '+' : ''}{sol(pnl, 4)} SOL</div>
-          {open && <button className="btn btn-danger-tinted ml-auto shrink-0 whitespace-nowrap" onClick={sell}>Sell</button>}
+          {open && <button className="btn btn-danger-tinted ml-auto shrink-0 whitespace-nowrap" onClick={() => void sell()}>Sell</button>}
         </div>
 
         <div className="card p-2"><PriceChart d={d} /></div>

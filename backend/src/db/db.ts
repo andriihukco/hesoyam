@@ -269,18 +269,6 @@ export class Db {
   }
 
   /** Closed-trade results per preset (null preset = custom settings). */
-  statsByPreset(mode: string): { preset: string | null; count: number; wins: number; pnl: number; avgPnlPct: number }[] {
-    return (
-      this.sql
-        .prepare(
-          `SELECT preset, COUNT(*) AS count, SUM(CASE WHEN realized_sol > cost_sol THEN 1 ELSE 0 END) AS wins,
-             SUM(realized_sol - cost_sol) AS pnl, AVG((realized_sol / cost_sol - 1) * 100) AS avgPnlPct
-           FROM positions WHERE status = 'closed' AND mode = ? GROUP BY preset ORDER BY count DESC`,
-        )
-        .all(mode) as Row[]
-    ).map((r) => ({ preset: r.preset, count: r.count, wins: r.wins, pnl: r.pnl, avgPnlPct: r.avgPnlPct }));
-  }
-
   /** Closed-trade results per strategy version, with max drawdown of cumulative PnL in close order. */
   statsByVersion(mode: string): { versionId: number; count: number; wins: number; pnl: number; avgPnlPct: number; maxDrawdownSol: number }[] {
     const rows = this.sql
