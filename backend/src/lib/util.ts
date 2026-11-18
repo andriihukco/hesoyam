@@ -1,3 +1,6 @@
+/** URL-safe id part from a display name. */
+export const slug = (name: string) => name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export async function fetchJson<T>(url: string, opts: RequestInit & { timeoutMs?: number } = {}): Promise<T> {

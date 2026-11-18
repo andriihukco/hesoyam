@@ -5,7 +5,7 @@ import {
 } from './config/strategy.js';
 import type { Db } from './db/db.js';
 import { Rpc } from './lib/rpc.js';
-import { errMsg, log, memo, startOfUtcDay } from './lib/util.js';
+import { errMsg, log, memo, slug, startOfUtcDay } from './lib/util.js';
 import { LAMPORTS } from './market/pump.js';
 import { PriceFeed } from './market/priceFeed.js';
 import { PumpPortalWs } from './market/pumpportalWs.js';
@@ -705,7 +705,7 @@ export class Bot extends EventEmitter {
     const n = name.trim().slice(0, 40);
     if (!n) throw new Error('name required');
     if (BUILT_IN_PRESETS.some((p) => p.name.toLowerCase() === n.toLowerCase())) throw new Error('name taken by a built-in preset');
-    const id = `user-${n.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    const id = `user-${slug(n)}`;
     const saved = this.savedPresets().filter((p) => p.id !== id);
     if (saved.length >= 30) throw new Error('max 30 saved presets');
     const preset: Preset = { id, name: n, description: description.slice(0, 160), builtIn: false, values: presetValues(this.strategy) };
