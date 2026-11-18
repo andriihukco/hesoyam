@@ -81,13 +81,13 @@ describe('DiscoveryStore', () => {
     expect(again.list('new', {}, 60)[0]).toMatchObject({ mint: 'a', market: { mcUsd: 30_000 } });
   });
 
-  it('refreshCandidates prefers recent and active tokens and skips old ones', () => {
+  it('refreshCandidates puts tokens with trading activity above dead new launches', () => {
     const { store, clock } = setup();
     store.addCreated(created('quietOld', clock.t - 20 * 60 * MIN));
     store.addCreated(created('activeOld', clock.t - 20 * 60 * MIN));
     store.applyMarket('activeOld', market());
     store.addCreated(created('new', clock.t - MIN));
-    expect(store.refreshCandidates(2)).toEqual(['new', 'activeOld']);
+    expect(store.refreshCandidates(2)).toEqual(['activeOld', 'new']);
   });
 
   it('promoted tokens we never saw created stay off the curve boards', () => {
@@ -106,5 +106,48 @@ describe('DiscoveryStore', () => {
     store.applyCurve('a', 100, 85, true);
     expect(store.list('soon', {}, 60)).toEqual([]);
     expect(store.list('graduated', {}, 60).map((t) => t.mint)).toEqual(['a']);
+  });
+
+  it('curve candidates put climbing coins first, then the newest', () => {
+    const { store, clock } = setup();
+    for (let i = 0; i < 5; i++) store.addCreated(created(`n${i}`, clock.t - i * 1000));
+    store.addCreated(created('climber', clock.t - 40 * MIN));
+    store.applyCurve('climber', 55, 30);
+    store.addCreated(created('almost', clock.t - 90 * MIN));
+    store.applyCurve('almost', 85, 70);
+    expect(store.curveCandidates(4)).toEqual(['almost', 'climber', 'n0', 'n1']);
+  });
+
+  it('market candidates rank board coins above dead launches', () => {
+    const { store, clock } = setup();
+    for (let i = 0; i < 5; i++) store.addCreated(created(`n${i}`, clock.t - i * 1000));
+    store.addCreated(created('soon', clock.t - 50 * MIN));
+    store.applyCurve('soon', 80, 60);
+    store.markMigrated('grad', clock.t - 30 * MIN);
+    expect(store.refreshCandidates(3)).toEqual(['soon', 'grad', 'n0']);
+  });
+
+  it('cap evicts dead low-bonded launches before board coins, even older ones', () => {
+    const { store, clock } = setup(3);
+    store.addCreated(created('grad', clock.t - 10 * 60 * MIN));
+    store.markMigrated('grad', clock.t - 60 * MIN);
+    store.addCreated(created('soon', clock.t - 5 * 60 * MIN));
+    store.applyCurve('soon', 80, 60);
+    store.addCreated(created('dead1', clock.t - 2 * MIN));
+    store.addCreated(created('dead2', clock.t - MIN));
+    expect(store.size).toBe(3);
+    expect(store.get('grad')).toBeDefined();
+    expect(store.get('soon')).toBeDefined();
+    expect(store.get('dead1')).toBeUndefined();
+  });
+
+  it('load skips a corrupt row instead of failing', () => {
+    const { store, db, clock } = setup();
+    store.addCreated(created('a', clock.t));
+    store.persist();
+    db.sql.prepare("INSERT INTO discovered_tokens VALUES('bad', '{not json', 0, ?)").run(clock.t);
+    const again = new DiscoveryStore(db, () => clock.t, 2000);
+    expect(() => again.load()).not.toThrow();
+    expect(again.size).toBe(1);
   });
 });

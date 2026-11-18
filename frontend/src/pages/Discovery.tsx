@@ -13,6 +13,19 @@ const usd = (v: number | null | undefined) =>
   v == null ? '—' : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
 
 interface Filters { minMc: string; maxMc: string; maxAgeMin: string; maxDevPct: string; socials: boolean }
+/** True at the desktop breakpoint (lg, 1024 px). */
+function useWide(): boolean {
+  const query = '(min-width: 1024px)';
+  const [wide, setWide] = useState(() => typeof matchMedia === 'function' && matchMedia(query).matches);
+  useEffect(() => {
+    const m = matchMedia(query);
+    const on = () => setWide(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, []);
+  return wide;
+}
+
 const NONE: Filters = { minMc: '', maxMc: '', maxAgeMin: '', maxDevPct: '', socials: false };
 
 /** Live boards from the free Pump.fun feed + DexScreener, refreshed every 5 s. View only. */
@@ -21,7 +34,11 @@ export function Discovery({ s, onError }: { s: Snapshot; onError: (e: string) =>
   const [phoneBoard, setPhoneBoard] = useState<DiscoveryBoard>('new');
   const [f, setF] = useState<Filters>(NONE);
   const [open, setOpen] = useState<string | null>(null);
-  const q = new URLSearchParams(Object.entries(f).filter(([, v]) => v !== '' && v !== false).map(([k, v]) => [k, v === true ? '1' : String(v)])).toString();
+  const wide = useWide();
+  const raw = new URLSearchParams(Object.entries(f).filter(([, v]) => v !== '' && v !== false).map(([k, v]) => [k, v === true ? '1' : String(v)])).toString();
+  // Wait until typing pauses before re-querying every board.
+  const [q, setQ] = useState(raw);
+  useEffect(() => { const t = setTimeout(() => setQ(raw), 300); return () => clearTimeout(t); }, [raw]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -32,15 +49,15 @@ export function Discovery({ s, onError }: { s: Snapshot; onError: (e: string) =>
 
       <FilterBar f={f} setF={setF} />
 
-      {/* Phones: one board at a time. */}
-      <div className="lg:hidden">
+      {/* Phones: one board at a time. Only the visible layout is mounted, so hidden boards do not poll. */}
+      {!wide && <div>
         <Segmented fill label="Board" value={phoneBoard} onChange={setPhoneBoard}
           options={[...BOARDS.map((b) => ({ value: b.key, label: b.key === 'soon' ? 'Soon' : b.label })), { value: 'trending' as const, label: 'Trending' }, { value: 'promoted' as const, label: 'Promoted' }]} />
         <div className="mt-3"><BoardColumn board={phoneBoard} q={q} s={s} onOpen={setOpen} onError={onError} /></div>
-      </div>
+      </div>}
 
       {/* Desktop: the three boards side by side, Trending / Promoted below. */}
-      <div className="hidden gap-4 lg:grid lg:grid-cols-3">
+      {wide && <><div className="grid grid-cols-3 gap-4">
         {BOARDS.map((b) => (
           <section key={b.key} aria-label={b.label} className="min-w-0">
             <div className="section-title" title={b.hint}>{b.label}</div>
@@ -48,13 +65,13 @@ export function Discovery({ s, onError }: { s: Snapshot; onError: (e: string) =>
           </section>
         ))}
       </div>
-      <section aria-label="Trending and promoted" className="hidden lg:block">
+      <section aria-label="Trending and promoted">
         <div className="mb-2 px-1">
           <Segmented label="List" value={side} onChange={setSide}
             options={[{ value: 'trending', label: 'Trending (our score)' }, { value: 'promoted', label: 'Promoted (paid)' }]} />
         </div>
         <BoardColumn board={side} q={q} s={s} onOpen={setOpen} onError={onError} grid />
-      </section>
+      </section></>}
 
       {open && <CoinSheet mint={open} s={s} onClose={() => setOpen(null)} onError={onError} />}
     </div>
@@ -101,7 +118,9 @@ function BoardColumn({ board, q, s, onOpen, onError, grid }: {
   if (!d.tokens.length) {
     return (
       <div className="card px-4 py-8 text-center text-[13px] text-label-3">
-        {d.status.connected ? 'Nothing here yet. New tokens appear as they launch.' : 'Connecting to the Pump.fun feed…'}
+        {!d.status.connected ? 'Connecting to the Pump.fun feed…'
+          : d.status.lastEventAt && d.serverTime - d.status.lastEventAt > 120_000 ? `No new launches for ${Math.round((d.serverTime - d.status.lastEventAt) / 60_000)} min.`
+          : 'Nothing here yet. New tokens appear as they launch.'}
       </div>
     );
   }
@@ -132,7 +151,7 @@ function TokenCard({ t, now, onOpen, showScore }: { t: DiscoveryToken; now: numb
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] tabular-nums text-label-2">
-        <span title="Age">{ago(t.createdAt, now)}</span>
+        {t.origin === 'created' && <span title="Age">{ago(t.createdAt, now)}</span>}
         {t.migratedAt ? <span>graduated {ago(t.migratedAt, now)} ago</span> : t.origin === 'created' && <BondBar pct={t.bondingPct} />}
         <span title="Volume, last 5 min">V5m {usd(m?.vol5mUsd)}</span>
         <span title="Buys / sells, last 5 min">TX <span className="text-pos">{m?.buys5m ?? 0}</span>/<span className="text-neg">{m?.sells5m ?? 0}</span></span>

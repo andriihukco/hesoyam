@@ -63,6 +63,9 @@ describe('passes', () => {
     expect(passes(tok({ market: { ...tok().market!, socials: [] } }), { socials: true }, NOW)).toBe(false);
     expect(passes(tok({ devBuyPct: 9 }), { maxDevPct: 5 }, NOW)).toBe(false);
   });
+  it('an age filter excludes tokens whose launch time we do not know', () => {
+    expect(passes(tok({ origin: 'other', createdAt: NOW }), { maxAgeMin: 10 }, NOW)).toBe(false);
+  });
   it('uses the curve market cap estimate when DexScreener has no data yet', () => {
     expect(passes(tok({ market: null }), { minMc: 1 }, NOW)).toBe(true);
     expect(passes(tok({ market: null }), { socials: true }, NOW)).toBe(false);

@@ -29,8 +29,12 @@ export class DiscoveryStore {
   load(): void {
     const rows = this.db.sql.prepare('SELECT data FROM discovered_tokens WHERE touched_at >= ?').all(this.now() - DAY) as { data: string }[];
     for (const r of rows) {
-      const t = JSON.parse(r.data) as DiscoveredToken;
-      this.tokens.set(t.mint, { ...t, origin: t.origin ?? 'created', promoted: false });
+      try {
+        const t = JSON.parse(r.data) as DiscoveredToken;
+        if (t?.mint) this.tokens.set(t.mint, { ...t, origin: t.origin ?? 'created', promoted: false });
+      } catch {
+        /* skip a corrupt row */
+      }
     }
     this.enforceCap();
   }
@@ -92,15 +96,37 @@ export class DiscoveryStore {
     for (const m of mints) this.ensure(m).promoted = true;
   }
 
-  /** Tokens to refresh: everything younger than 2 h (newest first), then older ones with activity. */
+  /**
+   * Market-data refresh order (DexScreener): coins on a board first, by relevance, then the newest.
+   * 1) curve coins ≥ 30 % bonded (most bonded first), 2) graduated < 2 h and promoted, 3) coins with 5-min
+   * volume, 4) the newest launches. At ~1,000 launches an hour, age alone would starve every board but New.
+   */
   refreshCandidates(limit: number): string[] {
     const now = this.now();
     const live = [...this.tokens.values()].filter((t) => boardOf(t, now) !== 'old');
-    const last = (t: DiscoveredToken) => Math.max(t.createdAt, t.migratedAt ?? 0);
-    const recent = live.filter((t) => now - last(t) < 2 * HOUR || t.promoted).sort((a, b) => last(b) - last(a));
-    const active = live.filter((t) => !recent.includes(t) && (t.market?.vol5mUsd ?? 0) > 0)
-      .sort((a, b) => (b.market?.vol5mUsd ?? 0) - (a.market?.vol5mUsd ?? 0));
-    return [...recent, ...active].slice(0, limit).map((t) => t.mint);
+    const tier = (t: DiscoveredToken) => {
+      const b = boardOf(t, now);
+      if ((b === 'soon' || b === 'mid')) return 0;
+      if ((b === 'graduated' && now - (t.migratedAt ?? 0) < 2 * HOUR) || t.promoted) return 1;
+      if ((t.market?.vol5mUsd ?? 0) > 0) return 2;
+      return 3;
+    };
+    const key = (t: DiscoveredToken, k: number) => (k === 0 ? t.bondingPct : k === 1 ? Math.max(t.migratedAt ?? 0, t.createdAt) : k === 2 ? t.market!.vol5mUsd : t.createdAt);
+    return live
+      .map((t) => ({ t, k: tier(t) }))
+      .sort((a, b) => a.k - b.k || key(b.t, b.k) - key(a.t, a.k))
+      .slice(0, limit)
+      .map((x) => x.t.mint);
+  }
+
+  /** Curve reads (cheap, 100 per RPC call): every live curve coin, climbing ones first, then newest. */
+  curveCandidates(limit: number): string[] {
+    const now = this.now();
+    return [...this.tokens.values()]
+      .filter((t) => t.origin === 'created' && t.migratedAt === null && boardOf(t, now) !== 'old')
+      .sort((a, b) => Number(b.bondingPct >= 30) - Number(a.bondingPct >= 30) || (a.bondingPct >= 30 ? b.bondingPct - a.bondingPct : b.createdAt - a.createdAt))
+      .slice(0, limit)
+      .map((t) => t.mint);
   }
 
   list(board: DiscoveryBoard, filter: DiscoveryFilter, limit: number): DiscoveredToken[] {
@@ -149,10 +175,17 @@ export class DiscoveryStore {
     this.dirty.clear();
   }
 
-  /** Over the cap: drop the oldest tokens (by creation), never a promoted one. */
+  /**
+   * Over the cap: drop dead launches first (low bonding, no market activity, oldest first), then the
+   * rest by age. Never a promoted coin, a coin ≥ 70 % bonded, or one graduated in the last 24 h.
+   */
   private enforceCap() {
     if (this.tokens.size <= this.cap) return;
-    const byAge = [...this.tokens.values()].filter((t) => !t.promoted).sort((a, b) => a.createdAt - b.createdAt);
-    for (const t of byAge.slice(0, this.tokens.size - this.cap)) this.tokens.delete(t.mint);
+    const now = this.now();
+    const keep = (t: DiscoveredToken) => t.promoted || boardOf(t, now) === 'soon' || boardOf(t, now) === 'graduated';
+    const dead = (t: DiscoveredToken) => t.bondingPct < 30 && !((t.market?.vol5mUsd ?? 0) > 0);
+    const order = [...this.tokens.values()].filter((t) => !keep(t))
+      .sort((a, b) => Number(dead(b)) - Number(dead(a)) || a.createdAt - b.createdAt);
+    for (const t of order.slice(0, this.tokens.size - this.cap)) this.tokens.delete(t.mint);
   }
 }

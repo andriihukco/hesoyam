@@ -64,7 +64,8 @@ export function passes(t: DiscoveredToken, f: DiscoveryFilter, now: number): boo
   const mc = t.market?.mcUsd ?? null;
   if (mc !== null && f.minMc !== undefined && mc < f.minMc) return false;
   if (mc !== null && f.maxMc !== undefined && mc > f.maxMc) return false;
-  if (f.maxAgeMin !== undefined && now - t.createdAt > f.maxAgeMin * MIN) return false;
+  // Only tokens we saw launch have a known age; placeholders (promoted / migration-only) do not.
+  if (f.maxAgeMin !== undefined && (t.origin !== 'created' || now - t.createdAt > f.maxAgeMin * MIN)) return false;
   if (f.socials && !(t.market?.socials.length)) return false;
   if (f.maxDevPct !== undefined && t.devBuyPct > f.maxDevPct) return false;
   return true;

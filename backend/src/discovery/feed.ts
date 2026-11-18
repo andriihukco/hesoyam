@@ -42,6 +42,11 @@ const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : N
 
 export function parseCreate(m: Msg, now: number): CreatedEvent | null {
   if (m.txType !== 'create' || typeof m.mint !== 'string') return null;
+  try {
+    new PublicKey(m.mint);
+  } catch {
+    return null;
+  }
   const vTokens = num(m.vTokensInBondingCurve);
   const pct = vTokens > 0 ? Math.min(100, Math.max(0, (1 - (vTokens - VIRTUAL_TOKEN_OFFSET) / REAL_TOKENS) * 100)) : 0;
   return {
@@ -92,6 +97,8 @@ export class DiscoveryFeed {
   private readonly dexUrl: string;
   connected = false;
   lastEventAt: number | null = null;
+  private openedAt = 0;
+  private refreshing = false;
 
   constructor(private readonly store: DiscoveryStore, private readonly deps: FeedDeps) {
     this.now = deps.now ?? Date.now;
@@ -104,6 +111,7 @@ export class DiscoveryFeed {
     this.connect();
     const every = (fn: () => unknown, ms: number) => this.timers.push(setInterval(() => void Promise.resolve(fn()).catch((e) => log('discovery', errMsg(e))), ms));
     every(() => this.refresh(), 15_000);
+    every(() => this.checkAlive(), 15_000);
     every(() => this.refreshPromoted(), 120_000);
     every(() => this.store.prune(), 600_000);
     void this.refreshPromoted().catch((e) => log('discovery', errMsg(e)));
@@ -121,6 +129,7 @@ export class DiscoveryFeed {
     this.sock = s;
     s.on('open', () => {
       this.connected = true;
+      this.openedAt = this.now();
       s.send(JSON.stringify({ method: 'subscribeNewToken' }));
       s.send(JSON.stringify({ method: 'subscribeMigration' }));
     });
@@ -153,10 +162,30 @@ export class DiscoveryFeed {
     }
   }
 
+  /** A half-open socket can stay "connected" with no events: after 60 s of silence, reconnect. */
+  checkAlive(): void {
+    if (!this.connected || !this.sock) return;
+    if (this.now() - Math.max(this.lastEventAt ?? 0, this.openedAt) > 60_000) {
+      log('discovery', 'no events for 60 s, reconnecting');
+      this.connected = false;
+      this.sock.close();
+    }
+  }
+
   async refresh(): Promise<void> {
+    if (this.refreshing) return;
+    this.refreshing = true;
+    try {
+      await this.refreshOnce();
+    } finally {
+      this.refreshing = false;
+    }
+  }
+
+  private async refreshOnce(): Promise<void> {
     const mints = this.store.refreshCandidates(300);
     const now = this.now();
-    const curveMints = mints.filter((m) => this.store.get(m)?.migratedAt == null);
+    const curveMints = this.store.curveCandidates(600);
     for (const batch of chunks(curveMints, 100)) {
       const pdas: string[] = [];
       const ok: string[] = [];

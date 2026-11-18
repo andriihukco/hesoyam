@@ -11,7 +11,7 @@ class FakeSocket extends EventEmitter implements SocketLike {
   close() { this.emit('close'); }
 }
 
-const MINT = '7krcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApump';
+const MINT = Keypair.generate().publicKey.toBase58();
 
 describe('parsers', () => {
   it('parses a create event', () => {
@@ -96,5 +96,33 @@ describe('DiscoveryFeed', () => {
     expect(calls.accounts.reduce((a, b) => a + b, 0)).toBe(250);
     expect(calls.dex).toHaveLength(Math.ceil(250 / 30));
     expect(calls.dex.every((u) => u.split('/').at(-1)!.split(',').length <= 30)).toBe(true);
+  });
+
+  it('reconnects a socket that stays silent for 60 s', () => {
+    let t = 1_000_000;
+    const { feed, sockets } = mk({ now: () => t, schedule: (fn) => { fn(); return 0 as unknown as NodeJS.Timeout; } });
+    feed.connect();
+    sockets[0]!.emit('open');
+    t += 59_000; feed.checkAlive();
+    expect(sockets).toHaveLength(1);
+    t += 2_000; feed.checkAlive();
+    expect(sockets).toHaveLength(2);
+    feed.stop();
+  });
+
+  it('rejects create events whose mint is not a public key', () => {
+    expect(parseCreate({ txType: 'create', mint: '../../api/x' }, 1)).toBeNull();
+  });
+
+  it('does not start a refresh while one is running', async () => {
+    let release!: () => void;
+    const { feed, store, calls } = mk({ fetchJson: (url) => { calls.dex.push(url); return new Promise((r) => { release = () => r([]); }); } });
+    store.addCreated({ mint: Keypair.generate().publicKey.toBase58(), symbol: '', name: '', creator: '', createdAt: 1_000_000, devBuyPct: 0, firstMcSol: 0, bondingPct: 0, realSol: 0 });
+    const a = feed.refresh();
+    await new Promise((r) => setTimeout(r, 0));
+    await feed.refresh();
+    expect(calls.dex).toHaveLength(1);
+    release();
+    await a;
   });
 });
