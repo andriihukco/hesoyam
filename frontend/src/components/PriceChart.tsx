@@ -45,7 +45,10 @@ export function PriceChart({ d }: { d: PositionDetail }) {
 
   const p = d.position;
   const t0 = p.openedAt;
-  const end = Math.max((p.closedAt ?? d.serverTime) - t0, 10_000);
+  const lastTs = d.ticks.at(-1)?.ts ?? 0;
+  // After an exit the chart keeps going: x runs to the last post-exit tick.
+  const end = Math.max((p.closedAt ?? d.serverTime) - t0, lastTs - t0, 10_000);
+  const closeT = p.closedAt ? p.closedAt - t0 : null;
   const roi = (price: number) => (price / p.entryPriceSol - 1) * 100;
 
   const { line, events, levels, yMin, yMax } = useMemo(() => {
@@ -79,7 +82,13 @@ export function PriceChart({ d }: { d: PositionDetail }) {
   const st = step(yMax - yMin);
   const yTicks: number[] = [];
   for (let v = Math.ceil(yMin / st) * st; v <= yMax; v += st) yTicks.push(v);
-  const pathD = line.map((pt, i) => `${i ? 'L' : 'M'}${x(pt.t).toFixed(1)},${y(pt.roi).toFixed(1)}`).join('');
+  const toD = (pts: Pt[]) => pts.map((pt, i) => `${i ? 'L' : 'M'}${x(pt.t).toFixed(1)},${y(pt.roi).toFixed(1)}`).join('');
+  const held = closeT === null ? line : line.filter((pt) => pt.t <= closeT);
+  const after = closeT === null ? [] : line.filter((pt) => pt.t >= closeT);
+  // The dashed part starts at the last held point so the two lines meet.
+  const afterLine = after.length && held.length ? [held.at(-1)!, ...after] : after;
+  const pathD = toD(held);
+  const afterD = toD(afterLine);
   const all = [...line, ...events].sort((a, b) => a.t - b.t);
 
   const onMove = (e: PointerEvent<SVGRectElement>) => {
@@ -117,7 +126,14 @@ export function PriceChart({ d }: { d: PositionDetail }) {
           </text>
         ))}
         {/* price line */}
-        {line.length >= 2 && <path d={pathD} fill="none" stroke="var(--tint)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
+        {held.length >= 2 && <path d={pathD} fill="none" stroke="var(--tint)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
+        {afterLine.length >= 2 && <path d={afterD} fill="none" stroke="var(--label-2)" strokeWidth={1.75} strokeDasharray="5 4" strokeLinejoin="round" />}
+        {closeT !== null && afterLine.length >= 2 && (
+          <g>
+            <line x1={x(closeT)} x2={x(closeT)} y1={M.t} y2={H - M.b} stroke="var(--label-3)" strokeWidth={1} strokeDasharray="2 3" />
+            <text x={x(closeT) + 4} y={M.t + 10} fontSize={10} fill="var(--label-2)">after exit</text>
+          </g>
+        )}
         {/* fills: marker + direct label, alternating above/below to avoid collisions */}
         {events.map((ev, i) => {
           const cx = x(ev.t);

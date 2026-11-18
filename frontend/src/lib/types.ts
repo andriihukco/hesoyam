@@ -32,6 +32,7 @@ export interface Trade {
 export interface PositionDetail {
   position: Position; trades: Trade[]; ticks: { ts: number; price: number }[];
   rules: { hardStopLossPct: number; trailingStopPct: number; takeProfitLadder: Ladder[] } | null; serverTime: number;
+  followEnd: 'rugged' | 'stale' | '24h' | null; followUntil: number | null; postExit: { peakPct: number; lowPct: number } | null;
 }
 export interface Activity { id?: number; ts: number; level: string; text: string }
 export interface TradeRef { id: number; symbol: string | null; mint: string; pnlSol: number; pnlPct: number; closedAt: number }

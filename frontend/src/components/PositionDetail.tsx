@@ -122,7 +122,8 @@ function Body({ d, s, onClose, onError }: { d: PositionDetail; s: Snapshot; onCl
           {open && <button className="btn btn-danger-tinted ml-auto shrink-0 whitespace-nowrap" onClick={() => void sell()}>Sell</button>}
         </div>
 
-        <div className="card p-2"><PriceChart d={d} /></div>
+        <div className="card p-2"><PriceChart d={d} />
+          <AfterExit d={d} /></div>
 
         <div className="card grid grid-cols-2 gap-x-4 gap-y-3 p-4 text-[13px] sm:grid-cols-3">
           {stats.map(([k, v]) => (
@@ -168,5 +169,24 @@ function Body({ d, s, onClose, onError }: { d: PositionDetail; s: Snapshot; onCl
         {s.mode === 'paper' && <p className="pb-2 text-[11px] text-label-3">Paper trade: fills are simulated from live quotes.</p>}
       </div>
     </>
+  );
+}
+
+/** One line on what the price did after the sell, and whether tracking is still running. */
+function AfterExit({ d }: { d: PositionDetail }) {
+  const p = d.position;
+  if (p.status !== 'closed' || !p.closedAt) return null;
+  const pe = d.postExit;
+  const fmt = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+  const last = d.ticks.at(-1)?.ts ?? p.closedAt;
+  const status = d.followEnd === 'rugged' ? `rugged ${dur(last - p.closedAt)} after exit`
+    : d.followEnd === 'stale' ? 'stopped: no trades for 30 min'
+    : d.followEnd === '24h' ? '24 h tracked'
+    : d.followUntil ? `tracking until ${new Date(d.followUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : 'not tracked (closed before this feature)';
+  return (
+    <p className="px-1 pt-1 text-[12px] text-label-2">
+      After exit{pe ? <>: peak <span className={tone(pe.peakPct)}>{fmt(pe.peakPct)}</span> · low <span className={tone(pe.lowPct)}>{fmt(pe.lowPct)}</span></> : ': no price yet'} · {status}
+    </p>
   );
 }
