@@ -7,6 +7,7 @@ import type { Db } from './db/db.js';
 import { Rpc } from './lib/rpc.js';
 import { errMsg, log, memo, startOfUtcDay } from './lib/util.js';
 import { StrategyStore } from './strategies/store.js';
+import { resolveMain } from './strategies/main.js';
 import type { PresetValues } from './config/strategy.js';
 import { LAMPORTS } from './market/pump.js';
 import { PriceFeed } from './market/priceFeed.js';
@@ -15,7 +16,7 @@ import { CurveWatcher } from './market/curveWatcher.js';
 import { MarketQuoter } from './market/quoter.js';
 import { dexPriceSol } from './market/dexPrice.js';
 import { authorityChecks, holderCheck, holderTop10, loadMint, rugcheck, rugcheckSummary } from './risk/checks.js';
-import { SignalRecorder } from './recording/recorder.js';
+import { SignalRecorder, canUntrack } from './recording/recorder.js';
 import { captureFacts } from './recording/facts.js';
 import { momentum } from './risk/momentum.js';
 import { SignalAggregator, countableChannels } from './signals/aggregator.js';
@@ -133,12 +134,10 @@ export class Bot extends EventEmitter {
     this.recorder = new SignalRecorder({
       db,
       now: Date.now,
-      pollPrice: (m) => this.entryPrice(m, this.strategy),
+      pollPrice: (m) => this.recordPrice(m),
+      canPoll: () => Date.now() >= this.jupCooldownUntil,
       flow: (m, since) => this.feed.flowSince(m, since),
-      // Still inside the mention window or held: prune()/exits untrack later.
-      release: (m) => {
-        if (!this.lastMentionAt.has(m) && !this.db.openPositions().some((p) => p.mint === m)) this.feed.untrack(m);
-      },
+      release: (m) => this.untrackIfIdle(m),
     });
     this.validator = new MintValidator(this.rpc);
     this.aggregator = new SignalAggregator(() => this.maxWindowSec() * 1000);
@@ -298,14 +297,28 @@ export class Bot extends EventEmitter {
     }
   }
 
+  private async quotePrice(mint: string, s: Strategy): Promise<number | null> {
+    const program = this.mintProgram.get(mint)!;
+    const f = await loadMint(this.rpc, mint, program);
+    const lamports = BigInt(Math.floor(s.buyAmountSol * LAMPORTS));
+    const q = await this.quoter.quoteBuy(mint, lamports, f.decimals, s.pumpFeeBps, s.maxSlippagePct * 100);
+    return q.outRaw > 0n ? s.buyAmountSol / (Number(q.outRaw) / 10 ** f.decimals) : null;
+  }
+
   private async entryPrice(mint: string, s: Strategy): Promise<number | null> {
     try {
-      const program = this.mintProgram.get(mint)!;
-      const f = await loadMint(this.rpc, mint, program);
-      const lamports = BigInt(Math.floor(s.buyAmountSol * LAMPORTS));
-      const q = await this.quoter.quoteBuy(mint, lamports, f.decimals, s.pumpFeeBps, s.maxSlippagePct * 100);
-      return q.outRaw > 0n ? s.buyAmountSol / (Number(q.outRaw) / 10 ** f.decimals) : null;
+      return await this.quotePrice(mint, s);
     } catch {
+      return null;
+    }
+  }
+
+  /** Recorder poll for graduated tokens; a 429 starts the same Jupiter cooldown open positions use. */
+  private async recordPrice(mint: string): Promise<number | null> {
+    try {
+      return await this.quotePrice(mint, this.strategy);
+    } catch (e) {
+      if (/429/.test(errMsg(e))) this.jupCooldownUntil = Date.now() + 15_000;
       return null;
     }
   }
@@ -531,7 +544,7 @@ export class Bot extends EventEmitter {
       realizedSol: 0, ladderDone: 0, peakPriceSol: fill.priceSol, lastPriceSol: fill.priceSol, lastActivityAt: now, closeReason: null,
       preset: lane.id ? lane.name : (this.activePreset()?.name ?? null),
       lane: lane.id,
-      versionId: lane.id ? lane.versionId : (this.activePreset()?.versionId ?? this.store.customFor(presetValues(this.strategy)).id),
+      versionId: lane.id ? lane.versionId : (this.mainResolved().versionId ?? this.store.customFor(presetValues(this.strategy)).id),
       rules: {
         hardStopLossPct: lane.strategy.hardStopLossPct,
         trailingStopPct: lane.strategy.trailingStopPct,
@@ -655,7 +668,7 @@ export class Bot extends EventEmitter {
         const pnl = p.realizedSol - p.costSol;
         this.note('trade', `CLOSED ${short(p.mint)} PnL ${pnl >= 0 ? '+' : ''}${pnl.toFixed(4)} SOL`);
         this.markOkAt.delete(p.id);
-        if (!this.db.openPositions().some((x) => x.mint === p.mint)) this.feed.untrack(p.mint);
+        this.untrackIfIdle(p.mint);
       }
     } catch (e) {
       this.retryAt.set(p.id, Date.now() + 5_000);
@@ -678,6 +691,12 @@ export class Bot extends EventEmitter {
     return open.length;
   }
 
+  /** Drop the feed subscription only when no position, recording or mention window still needs it. */
+  private untrackIfIdle(mint: string) {
+    const held = this.db.openPositions().some((p) => p.mint === mint);
+    if (canUntrack({ held, recording: this.recorder.isRecording(mint), inMentionWindow: this.lastMentionAt.has(mint) })) this.feed.untrack(mint);
+  }
+
   private prune() {
     const now = Date.now();
     this.arenaTick();
@@ -687,8 +706,8 @@ export class Bot extends EventEmitter {
     for (const [mint, at] of this.lastMentionAt) {
       if (now - at > keepMs && !held.has(mint)) {
         // A signal still being recorded stays subscribed; the recorder releases it when its window ends.
-        if (!this.recorder.isRecording(mint)) this.feed.untrack(mint);
         this.lastMentionAt.delete(mint);
+        this.untrackIfIdle(mint);
       }
     }
   }
@@ -740,10 +759,20 @@ export class Bot extends EventEmitter {
       }));
   }
 
-  /** The preset whose values equal the current strategy, if any. */
+  /** Main strategy's version and preset: the applied version while settings still equal it, else a matching preset. */
+  private mainResolved() {
+    const applied = this.db.getSetting<number>('mainVersionId');
+    return resolveMain(presetValues(this.strategy), applied ? this.store.get(applied) : undefined, this.presets());
+  }
+
+  /** The preset the main strategy belongs to, if any. */
   activePreset(): Preset | undefined {
-    const cur = canon(presetValues(this.strategy));
-    return this.presets().find((p) => canon(p.values) === cur);
+    const { presetId } = this.mainResolved();
+    return presetId ? this.presets().find((p) => p.id === presetId) : undefined;
+  }
+
+  private setMainVersion(versionId: number | undefined) {
+    if (versionId) this.db.setSetting('mainVersionId', versionId);
   }
 
   /** Alias kept for one release: applies the latest version of a strategy. */
@@ -751,6 +780,7 @@ export class Bot extends EventEmitter {
     const p = this.presets().find((x) => x.id === id);
     if (!p) throw new Error('preset not found');
     this.setStrategy(p.values);
+    this.setMainVersion(p.versionId);
     this.note('info', `preset "${p.name}" applied`);
   }
 
@@ -758,6 +788,7 @@ export class Bot extends EventEmitter {
     const v = this.store.get(versionId);
     if (!v) throw new Error('version not found');
     this.setStrategy({ ...presetValues(DEFAULT_STRATEGY), ...v.values });
+    this.setMainVersion(v.id);
     this.note('info', `strategy ${v.strategyId} v${v.version} applied`);
   }
 
@@ -768,6 +799,8 @@ export class Bot extends EventEmitter {
 
   createStrategy(name: string, description = '', values?: Partial<Strategy>) {
     const v = this.store.create(name, description, this.cleanValues(values), 'user', 'created');
+    // Created from the current settings: it is the main strategy now, not the built-in it may equal.
+    if (!values) this.setMainVersion(v.id);
     this.note('info', `strategy "${name.trim()}" created`);
     this.changed();
     return v;
@@ -881,6 +914,7 @@ export class Bot extends EventEmitter {
       strategy: this.strategy,
       presets: this.presets(),
       activePresetId: this.activePreset()?.id ?? null,
+      mainVersionId: this.mainResolved().versionId,
       versionStats: this.db.statsByVersion(this.mode),
       hardLimits: {
         agentLiveEnabled: env.AGENT_LIVE_ENABLED,
@@ -907,8 +941,5 @@ export class Bot extends EventEmitter {
 
 const laneKey = (lane: string | null, mint: string) => `${lane ?? 'main'}|${mint}`;
 
-/** Key-order-independent JSON for comparing strategy values. */
-const canon = (v: object): string =>
-  JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort()) : x));
 const short = (m: string) => `${m.slice(0, 4)}…${m.slice(-4)}`;
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : n.toFixed(2));

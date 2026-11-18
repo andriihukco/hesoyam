@@ -34,7 +34,7 @@ export function StrategyDetail({ id, s, onBack, onError }: { id: string; s: Snap
   const latest = d.versions[0]!;
   const v = d.versions.find((x) => x.id === sel) ?? latest;
   const st = d.stats.find((x) => x.versionId === v.id);
-  const isMainNow = s.activePresetId === id && v.id === latest.id;
+  const isMainNow = s.mainVersionId === v.id;
 
   const apply = async (ver: VersionRow) => {
     const changes = diff(s.strategy as unknown as Record<string, unknown>, { ...s.strategy, ...ver.values });

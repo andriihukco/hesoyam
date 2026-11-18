@@ -50,18 +50,27 @@ export class StrategyStore {
     return r ? toVersion(r) : undefined;
   }
 
-  /** Built-ins get v1 once; when their values change in code, a new version is added (old trades keep theirs). */
+  /**
+   * Built-ins get v1 once. A new version is added only when the values in code change since the last
+   * time code was synced (stored per built-in), so the user's own edits of a built-in survive restarts.
+   */
   ensureBuiltIns(presets: Preset[]): void {
     for (const p of presets) {
       const values = p.values as PresetValues;
+      const key = `builtInCode:${p.id}`;
       if (!this.strategy(p.id)) {
         this.insertStrategy(p.id, p.name, p.description, true);
         this.insertVersion(p.id, 1, null, values, 'user', 'built-in');
+        this.db.setSetting(key, values);
         continue;
       }
       this.db.sql.prepare('UPDATE strategies SET name = ?, description = ? WHERE id = ?').run(p.name, p.description, p.id);
-      const cur = this.latest(p.id)!;
-      if (diffValues(cur.values, values).length) this.insertVersion(p.id, cur.version + 1, cur.id, values, 'user', 'built-in updated');
+      const lastCode = this.db.getSetting<PresetValues>(key);
+      if (lastCode && diffValues(lastCode, values).length) {
+        const cur = this.latest(p.id)!;
+        if (diffValues(cur.values, values).length) this.insertVersion(p.id, cur.version + 1, cur.id, values, 'user', 'built-in updated');
+      }
+      this.db.setSetting(key, values);
     }
   }
 

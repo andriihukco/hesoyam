@@ -148,4 +148,13 @@ describe('StrategyStore', () => {
     expect(b.strategyId).toBe('custom');
     expect(store.list().some((s) => s.id === 'custom')).toBe(true);
   });
+
+  it('a user edit of a built-in survives the next ensureBuiltIns (restart)', () => {
+    const { store } = fresh();
+    store.ensureBuiltIns(BUILT_IN_PRESETS);
+    const v1 = store.versions('scalp')[0]!;
+    const v2 = store.addVersion('scalp', { ...v1.values, hardStopLossPct: 9 }, 'user', 'mine');
+    store.ensureBuiltIns(BUILT_IN_PRESETS);
+    expect(store.versions('scalp')[0]!.id).toBe(v2.id);
+  });
 });

@@ -10,6 +10,8 @@ export interface RecorderDeps {
   flow: (mint: string, sinceMs: number) => { trades: number; buySol: number; sellSol: number };
   /** Called once when recording ends; the bot untracks the mint unless a position holds it. */
   release: (mint: string) => void;
+  /** False while the price source is cooling down (e.g. Jupiter 429); polls wait without losing their turn. */
+  canPoll?: () => boolean;
 }
 
 export interface RecorderOpts {
@@ -17,6 +19,11 @@ export interface RecorderOpts {
   curveMinGapMs?: number;
   pollMs?: number;
   retentionMs?: number;
+}
+
+/** One rule for every place that may drop a price-feed subscription (exit close, mention prune, recording end). */
+export function canUntrack(o: { held: boolean; recording: boolean; inMentionWindow: boolean }): boolean {
+  return !o.held && !o.recording && !o.inMentionWindow;
 }
 
 interface Rec { route: Route; startedAt: number; lastSampleAt: number | null; lastPollAt: number | null }
@@ -70,6 +77,7 @@ export class SignalRecorder {
         continue;
       }
       if (r.route !== 'jupiter' || (r.lastPollAt !== null && now - r.lastPollAt < this.pollMs)) continue;
+      if (this.deps.canPoll && !this.deps.canPoll()) continue;
       r.lastPollAt = now;
       polls.push(
         this.deps.pollPrice(mint).then(

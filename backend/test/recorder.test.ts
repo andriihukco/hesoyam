@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { Db } from '../src/db/db.js';
-import { SignalRecorder } from '../src/recording/recorder.js';
+import { SignalRecorder, canUntrack } from '../src/recording/recorder.js';
 import { captureFacts } from '../src/recording/facts.js';
 
 type PathRow = { mint: string; ts: number; price: number | null; trades: number; buy_sol: number; sell_sol: number };
 
-function setup() {
+function setup(canPoll: () => boolean = () => true) {
   const db = new Db(':memory:');
   const clock = { t: 1_000_000 };
   const released: string[] = [];
@@ -20,6 +20,7 @@ function setup() {
       return { trades: 2, buySol: 0.5, sellSol: 0.1 };
     },
     release: (m) => released.push(m),
+    canPoll,
   });
   const rows = () => db.sql.prepare('SELECT * FROM signal_paths ORDER BY ts').all() as PathRow[];
   return { db, clock, rec, rows, released, flowCalls, setPrice: (p: number) => (price = p) };
@@ -54,6 +55,18 @@ describe('SignalRecorder', () => {
     clock.t += 5_000;
     await rec.tick();
     expect(rows()).toHaveLength(2);
+  });
+
+  it('skips graduated polls during a cooldown and polls as soon as it ends', async () => {
+    let cool = true;
+    const { clock, rec, rows } = setup(() => !cool);
+    rec.start('G', 'jupiter');
+    await rec.tick();
+    expect(rows()).toHaveLength(0);
+    cool = false;
+    clock.t += 1_000;
+    await rec.tick();
+    expect(rows()).toHaveLength(1);
   });
 
   it('stops after 30 min and calls release once', async () => {
@@ -130,5 +143,14 @@ describe('captureFacts', () => {
       top10: async () => 1, rugcheck: async () => ({}),
     }, 'M', 'jupiter');
     expect(facts(db)).toHaveLength(1);
+  });
+});
+
+describe('canUntrack', () => {
+  it('keeps a mint subscribed while it is recording, held, or inside its mention window', () => {
+    expect(canUntrack({ held: false, recording: true, inMentionWindow: false })).toBe(false);
+    expect(canUntrack({ held: true, recording: false, inMentionWindow: false })).toBe(false);
+    expect(canUntrack({ held: false, recording: false, inMentionWindow: true })).toBe(false);
+    expect(canUntrack({ held: false, recording: false, inMentionWindow: false })).toBe(true);
   });
 });

@@ -77,7 +77,7 @@ export interface Snapshot {
   feed: { source: string; connected: boolean; tracked: number };
   telegram: { state: string; channels: { id: string; title: string; folder: string | null }[]; folders: TgFolder[]; lastMessageAt: number | null; recoveredByPoll: number; error: string | null };
   social: { x: SocialStatus; threads: SocialStatus };
-  strategy: Strategy; presets: Preset[]; activePresetId: string | null; versionStats: VersionStat[]; hardLimits: HardLimits; arena: Arena;
+  strategy: Strategy; presets: Preset[]; activePresetId: string | null; mainVersionId: number | null; versionStats: VersionStat[]; hardLimits: HardLimits; arena: Arena;
   positions: Position[]; closed: Position[]; signals: Signal[]; mentions: Mention[];
   activity: Activity[]; activityTotal: number; chats: ChatLine[]; stats: { today: Stats; all: Stats }; serverTime: number;
 }
