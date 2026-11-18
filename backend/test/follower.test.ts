@@ -117,4 +117,14 @@ describe('PostExitFollower', () => {
     at(1000); f.onPrice('M', 1);
     expect(ticks).toHaveLength(1);
   });
+
+  it('a follow resumed after restart starts its stale clock at resume time', async () => {
+    const { f, at, ends } = setup();
+    at(13 * 60 * MIN);
+    f.follow({ ...curve(), resumedAt: 1_000_000 + 13 * 60 * MIN });
+    at(13 * 60 * MIN + 5_000); await f.tick();
+    expect(ends).toEqual([]);
+    at(13 * 60 * MIN + 30 * MIN); await f.tick();
+    expect(ends).toEqual([{ id: 1, reason: 'stale' }]);
+  });
 });

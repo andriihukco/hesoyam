@@ -18,6 +18,8 @@ import { dexPriceSol } from './market/dexPrice.js';
 import { authorityChecks, holderCheck, holderTop10, loadMint, rugcheck, rugcheckSummary } from './risk/checks.js';
 import { SignalRecorder, canUntrack } from './recording/recorder.js';
 import { captureFacts } from './recording/facts.js';
+import { PostExitFollower } from './recording/follower.js';
+import { RANGES, buildPortfolio, rangeStart, type Range } from './portfolio/portfolio.js';
 import { momentum } from './risk/momentum.js';
 import { analyzeHolders, heliusKey } from './holders/analyzer.js';
 import { summarize } from './holders/summary.js';
@@ -109,6 +111,7 @@ export class Bot extends EventEmitter {
   private chatSeq = 0;
   readonly store: StrategyStore;
   readonly recorder: SignalRecorder;
+  readonly follower: PostExitFollower;
 
   constructor(private db: Db) {
     super();
@@ -142,6 +145,14 @@ export class Bot extends EventEmitter {
       flow: (m, since) => this.feed.flowSince(m, since),
       release: (m) => this.untrackIfIdle(m),
     });
+    this.follower = new PostExitFollower({
+      now: Date.now,
+      pollPrice: (m) => this.recordPrice(m),
+      canPoll: () => Date.now() >= this.jupCooldownUntil,
+      addTick: (id, ts, price) => this.db.addTick(id, ts, price),
+      end: (id, reason) => this.db.setFollowEnd(id, reason, Date.now()),
+      release: (m) => this.untrackIfIdle(m),
+    });
     this.validator = new MintValidator(this.rpc);
     this.aggregator = new SignalAggregator(() => this.maxWindowSec() * 1000);
     this.paper = new PaperExecutor(
@@ -170,6 +181,7 @@ export class Bot extends EventEmitter {
     this.feed.on('price', (mint: string, price: number | null) => {
       if (!price) return;
       this.recorder.onPrice(mint, price);
+      this.follower.onPrice(mint, price);
       void this.onPrice(mint, price);
     });
     this.tg.on('message', (m: TgMessage) => void this.onTelegram(m));
@@ -192,6 +204,14 @@ export class Bot extends EventEmitter {
     this.timers.push(setInterval(() => void this.pollGraduated(), 3_000));
     this.timers.push(setInterval(() => this.prune(), 30_000));
     this.timers.push(setInterval(() => void this.recorder.tick(), 5_000));
+    this.timers.push(setInterval(() => void this.follower.tick(), 5_000));
+    this.timers.push(setInterval(() => this.snapshotEquity(), 5 * 60_000));
+    // Resume post-exit tracking after a restart (positions closed in the last 24 h, not ended yet).
+    for (const c of this.db.followCandidates(Date.now() - 24 * 3_600_000)) {
+      this.feed.track(c.mint);
+      this.follower.follow({ positionId: c.id, mint: c.mint, route: c.route, closedAt: c.closedAt, exitPrice: c.lastPrice, resumedAt: Date.now() });
+    }
+    this.snapshotEquity();
     this.timers.push(setInterval(() => this.recorder.prune(), 3_600_000));
     void this.rpc.ping();
     this.note('info', `bot started in ${this.mode} mode, RPC ${this.rpc.name}, trade feed ${this.feed.sourceName}`);
@@ -300,8 +320,18 @@ export class Bot extends EventEmitter {
     }
   }
 
+  /** Token program of a mint; looked up on-chain when not seen in this run (e.g. after a restart). */
+  private async programFor(mint: string): Promise<string> {
+    const known = this.mintProgram.get(mint);
+    if (known) return known;
+    const info = await this.validator.validate(mint);
+    if (!info) throw new Error('not a token mint');
+    this.mintProgram.set(mint, info.programId);
+    return info.programId;
+  }
+
   private async quotePrice(mint: string, s: Strategy): Promise<number | null> {
-    const program = this.mintProgram.get(mint)!;
+    const program = await this.programFor(mint);
     const f = await loadMint(this.rpc, mint, program);
     const lamports = BigInt(Math.floor(s.buyAmountSol * LAMPORTS));
     const q = await this.quoter.quoteBuy(mint, lamports, f.decimals, s.pumpFeeBps, s.maxSlippagePct * 100);
@@ -437,25 +467,63 @@ export class Bot extends EventEmitter {
   }
 
   /** Store a chart point: always for fills, otherwise at most every 5 s unless the price moved 1%+. */
-  private tick_(positionId: number, price: number, force = false) {
+  private tick_(positionId: number, price: number, force = false, at?: number) {
     if (!(price > 0)) return;
-    const now = Date.now();
+    const now = at ?? Date.now();
     const last = this.lastTick.get(positionId);
     if (!force && last && now - last.ts < 5_000 && Math.abs(price / last.price - 1) < 0.01) return;
     this.db.addTick(positionId, now, price);
     this.lastTick.set(positionId, { ts: now, price });
   }
 
-  /** Everything the position detail view needs. */
+  /** Everything the position detail view needs, including what the price did after the exit. */
   positionDetail(id: number) {
     const position = this.db.position(id);
     if (!position) throw new Error('position not found');
+    const ticks = this.db.ticks(id);
+    let postExit: { peakPct: number; lowPct: number } | null = null;
+    if (position.closedAt && position.lastPriceSol > 0) {
+      const after = ticks.filter((t) => t.ts > position.closedAt!).map((t) => t.price);
+      if (after.length) {
+        const exit = position.lastPriceSol;
+        postExit = { peakPct: (Math.max(...after) / exit - 1) * 100, lowPct: (Math.min(...after) / exit - 1) * 100 };
+      }
+    }
     return {
       position,
       trades: this.db.tradesFor(id),
-      ticks: this.db.ticks(id),
+      ticks,
       rules: position.rules,
+      followEnd: position.followEnd,
+      followUntil: position.followUntil,
+      postExit,
       serverTime: Date.now(),
+    };
+  }
+
+  /** Wallet value now (cash + open positions at last price); stored every 5 min and on each close. */
+  private snapshotEquity() {
+    try {
+      const w = this.walletSummary();
+      const openSol = this.db.openPositions().reduce((a, p) => a + p.tokensHeld * p.lastPriceSol, 0);
+      this.db.addEquitySnapshot({ ts: Date.now(), mode: this.mode, cashSol: w.balanceSol, openSol, totalSol: w.balanceSol + openSol });
+    } catch (e) {
+      log('portfolio', `snapshot failed: ${errMsg(e)}`);
+    }
+  }
+
+  portfolio(range: string) {
+    const r: Range = RANGES.includes(range as Range) ? (range as Range) : 'all';
+    const since = rangeStart(r, Date.now());
+    const names = new Map(this.store.list(true).flatMap((s) => this.store.versions(s.id).map((v) => [v.id, `${s.name} v${v.version}`] as const)));
+    return {
+      range: r,
+      mode: this.mode,
+      ...buildPortfolio({
+        snapshots: this.db.equitySnapshots(this.mode, since),
+        closed: this.db.closedSince(this.mode, since),
+        versionName: (id) => (id === null ? 'Unknown' : names.get(id) ?? `#${id}`),
+      }),
     };
   }
 
@@ -555,7 +623,7 @@ export class Bot extends EventEmitter {
     const p = this.db.insertPosition({
       mint, symbol: sig.symbol, mode: this.mode, route: fill.route, status: 'open', openedAt: now, closedAt: null,
       decimals, costSol, entryPriceSol: costSol / fill.tokens, initialTokens: fill.tokens, tokensHeld: fill.tokens,
-      realizedSol: 0, ladderDone: 0, peakPriceSol: fill.priceSol, lastPriceSol: fill.priceSol, lastActivityAt: now, closeReason: null,
+      realizedSol: 0, ladderDone: 0, peakPriceSol: fill.priceSol, lastPriceSol: fill.priceSol, lastActivityAt: now, closeReason: null, followUntil: null, followEnd: null,
       preset: lane.id ? lane.name : (this.activePreset()?.name ?? null),
       lane: lane.id,
       versionId: lane.id ? lane.versionId : (this.mainResolved().versionId ?? this.store.customFor(presetValues(this.strategy)).id),
@@ -675,7 +743,7 @@ export class Bot extends EventEmitter {
       this.db.addTrade({ positionId: p.id, side: 'sell', route: fill.route, sol: fill.sol, tokens: fill.tokens, priceSol: fill.priceSol,
         feeSol: fill.feeSol, impactPct: fill.impactPct, slippagePct: fill.slippagePct, latencyMs: fill.latencyMs, reason: a.reason, ts: now });
       this.retryAt.delete(p.id);
-      this.tick_(p.id, fill.priceSol, true);
+      this.tick_(p.id, fill.priceSol, true, now);
       if (p.status === 'closed') this.lastTick.delete(p.id);
       this.note('trade', `${p.lane ? `[${this.laneFor(p.lane).name}] ` : ''}SELL ${short(p.mint)} ${fmt(fill.tokens)} → ${fill.sol.toFixed(4)} SOL (${a.reason})`);
       if (p.status === 'closed') {
@@ -686,6 +754,9 @@ export class Bot extends EventEmitter {
           if (n) this.note('warn', `rug ${short(p.mint)}: ${n} holder/funder wallets remembered for future holder checks`);
         }
         this.markOkAt.delete(p.id);
+        this.db.setFollowUntil(p.id, now + 24 * 3_600_000);
+        this.follower.follow({ positionId: p.id, mint: p.mint, route: p.route, closedAt: now, exitPrice: fill.priceSol });
+        this.snapshotEquity();
         this.untrackIfIdle(p.mint);
       }
     } catch (e) {
@@ -712,7 +783,7 @@ export class Bot extends EventEmitter {
   /** Drop the feed subscription only when no position, recording or mention window still needs it. */
   private untrackIfIdle(mint: string) {
     const held = this.db.openPositions().some((p) => p.mint === mint);
-    if (canUntrack({ held, recording: this.recorder.isRecording(mint), inMentionWindow: this.lastMentionAt.has(mint) })) this.feed.untrack(mint);
+    if (canUntrack({ held, recording: this.recorder.isRecording(mint), inMentionWindow: this.lastMentionAt.has(mint), following: this.follower.isFollowing(mint) })) this.feed.untrack(mint);
   }
 
   private prune() {

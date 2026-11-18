@@ -22,8 +22,8 @@ export interface RecorderOpts {
 }
 
 /** One rule for every place that may drop a price-feed subscription (exit close, mention prune, recording end). */
-export function canUntrack(o: { held: boolean; recording: boolean; inMentionWindow: boolean }): boolean {
-  return !o.held && !o.recording && !o.inMentionWindow;
+export function canUntrack(o: { held: boolean; recording: boolean; inMentionWindow: boolean; following?: boolean }): boolean {
+  return !o.held && !o.recording && !o.inMentionWindow && !o.following;
 }
 
 interface Rec { route: Route; startedAt: number; lastSampleAt: number | null; lastPollAt: number | null }

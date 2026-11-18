@@ -43,11 +43,12 @@ export class PostExitFollower {
     this.minGapMs = o.minGapMs ?? 5_000;
   }
 
-  follow(p: { positionId: number; mint: string; route: Route; closedAt: number; exitPrice: number }): void {
+  /** `resumedAt`: set when re-following after a restart, so the stale clock starts then, not at the close. */
+  follow(p: { positionId: number; mint: string; route: Route; closedAt: number; exitPrice: number; resumedAt?: number }): void {
     if (this.byId.has(p.positionId)) return;
     this.byId.set(p.positionId, {
       positionId: p.positionId, mint: p.mint, route: p.route, closedAt: p.closedAt,
-      peak: p.exitPrice > 0 ? p.exitPrice : 0, lastPriceAt: p.closedAt, lastTick: null, lastPollAt: null,
+      peak: p.exitPrice > 0 ? p.exitPrice : 0, lastPriceAt: Math.max(p.closedAt, p.resumedAt ?? p.closedAt), lastTick: null, lastPollAt: null,
     });
     const set = this.byMint.get(p.mint) ?? new Set<number>();
     set.add(p.positionId);

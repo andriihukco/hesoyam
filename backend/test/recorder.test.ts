@@ -153,4 +153,7 @@ describe('canUntrack', () => {
     expect(canUntrack({ held: false, recording: false, inMentionWindow: true })).toBe(false);
     expect(canUntrack({ held: false, recording: false, inMentionWindow: false })).toBe(true);
   });
+  it('following keeps the mint subscribed', () => {
+    expect(canUntrack({ held: false, recording: false, inMentionWindow: false, following: true })).toBe(false);
+  });
 });
