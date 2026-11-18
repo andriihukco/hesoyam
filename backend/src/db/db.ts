@@ -117,6 +117,7 @@ const toPosition = (r: Row): Position => ({
   lastPriceSol: r.last_price, lastActivityAt: r.last_activity_at, closeReason: r.close_reason,
   preset: r.preset ?? null,
   lane: r.lane ?? null,
+  versionId: r.version_id ?? null,
   rules: r.rules ? JSON.parse(r.rules) : null,
 });
 
@@ -197,12 +198,12 @@ export class Db {
     const r = this.sql
       .prepare(
         `INSERT INTO positions(mint, symbol, mode, route, status, opened_at, closed_at, decimals, cost_sol, entry_price,
-          initial_tokens, tokens_held, realized_sol, ladder_done, peak_price, last_price, last_activity_at, close_reason, preset, lane, rules)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          initial_tokens, tokens_held, realized_sol, ladder_done, peak_price, last_price, last_activity_at, close_reason, preset, lane, rules, version_id)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(p.mint, p.symbol, p.mode, p.route, p.status, p.openedAt, p.closedAt, p.decimals, p.costSol, p.entryPriceSol,
         p.initialTokens, p.tokensHeld, p.realizedSol, p.ladderDone, p.peakPriceSol, p.lastPriceSol, p.lastActivityAt,
-        p.closeReason, p.preset, p.lane, p.rules ? JSON.stringify(p.rules) : null);
+        p.closeReason, p.preset, p.lane, p.rules ? JSON.stringify(p.rules) : null, p.versionId);
     return { ...p, id: Number(r.lastInsertRowid) };
   }
 
@@ -278,6 +279,42 @@ export class Db {
         )
         .all(mode) as Row[]
     ).map((r) => ({ preset: r.preset, count: r.count, wins: r.wins, pnl: r.pnl, avgPnlPct: r.avgPnlPct }));
+  }
+
+  /** Closed-trade results per strategy version, with max drawdown of cumulative PnL in close order. */
+  statsByVersion(mode: string): { versionId: number; count: number; wins: number; pnl: number; avgPnlPct: number; maxDrawdownSol: number }[] {
+    const rows = this.sql
+      .prepare(
+        `SELECT version_id AS v, realized_sol - cost_sol AS pnl, (realized_sol / cost_sol - 1) * 100 AS pct
+         FROM positions WHERE status = 'closed' AND mode = ? AND version_id IS NOT NULL ORDER BY closed_at, id`,
+      )
+      .all(mode) as { v: number; pnl: number; pct: number }[];
+    const by = new Map<number, { versionId: number; count: number; wins: number; pnl: number; pctSum: number; peak: number; maxDrawdownSol: number }>();
+    for (const r of rows) {
+      const a = by.get(r.v) ?? { versionId: r.v, count: 0, wins: 0, pnl: 0, pctSum: 0, peak: 0, maxDrawdownSol: 0 };
+      a.count++;
+      if (r.pnl > 0) a.wins++;
+      a.pnl += r.pnl;
+      a.pctSum += r.pct;
+      a.peak = Math.max(a.peak, a.pnl);
+      a.maxDrawdownSol = Math.max(a.maxDrawdownSol, a.peak - a.pnl);
+      by.set(r.v, a);
+    }
+    return [...by.values()].map(({ versionId, count, wins, pnl, pctSum, maxDrawdownSol }) => ({
+      versionId, count, wins, pnl, avgPnlPct: pctSum / count, maxDrawdownSol,
+    }));
+  }
+
+  /** Cumulative realized PnL of one version, one point per closed position. */
+  equityCurve(versionId: number, mode: string): { ts: number; pnl: number }[] {
+    const rows = this.sql
+      .prepare(
+        `SELECT closed_at AS ts, realized_sol - cost_sol AS pnl FROM positions
+         WHERE status = 'closed' AND mode = ? AND version_id = ? ORDER BY closed_at, id`,
+      )
+      .all(mode, versionId) as { ts: number; pnl: number }[];
+    let cum = 0;
+    return rows.map((r) => ({ ts: r.ts, pnl: (cum += r.pnl) }));
   }
 
   /** Closed-trade results per arena lane. */

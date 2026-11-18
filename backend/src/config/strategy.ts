@@ -103,6 +103,9 @@ export interface Preset {
   description: string;
   builtIn: boolean;
   values: PresetValues;
+  /** Latest version backing this preset (absent for code-defined built-ins before the store loads them). */
+  versionId?: number;
+  version?: number;
 }
 
 export function presetValues(s: Strategy): PresetValues {

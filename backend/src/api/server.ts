@@ -33,12 +33,19 @@ export async function buildServer(bot: Bot) {
 
   app.get('/api/state', async () => bot.snapshot());
   app.put('/api/strategy', async (req) => run(() => bot.setStrategy(req.body as never)));
-  app.post('/api/presets', async (req) => {
-    const b = (req.body ?? {}) as { name?: string; description?: string };
-    return run(() => bot.savePreset(String(b.name ?? ''), String(b.description ?? '')));
-  });
   app.post('/api/presets/:id/apply', async (req) => run(() => bot.applyPreset((req.params as { id: string }).id)));
-  app.delete('/api/presets/:id', async (req) => run(() => bot.deletePreset((req.params as { id: string }).id)));
+  app.get('/api/strategies', async () => run(() => bot.store.list()));
+  app.get('/api/strategies/:id', async (req) => run(() => bot.strategyDetail((req.params as { id: string }).id)));
+  app.post('/api/strategies', async (req) => {
+    const b = (req.body ?? {}) as { name?: string; description?: string; values?: Record<string, unknown> };
+    return run(() => bot.createStrategy(String(b.name ?? ''), String(b.description ?? ''), b.values as never));
+  });
+  app.post('/api/strategies/:id/versions', async (req) => {
+    const b = (req.body ?? {}) as { values?: Record<string, unknown>; note?: string };
+    return run(() => bot.addStrategyVersion((req.params as { id: string }).id, (b.values ?? {}) as never, String(b.note ?? '')));
+  });
+  app.post('/api/strategies/:id/archive', async (req) => run(() => bot.archiveStrategy((req.params as { id: string }).id)));
+  app.post('/api/versions/:id/apply', async (req) => run(() => bot.applyVersion(Number((req.params as { id: string }).id))));
   app.post('/api/arena', async (req) => {
     const b = (req.body ?? {}) as { enabled?: unknown; autoSelect?: unknown };
     const patch: { enabled?: boolean; autoSelect?: boolean } = {};

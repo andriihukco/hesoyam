@@ -7,7 +7,7 @@ const NOW = 1_000_000;
 const pos = (o: Partial<Position> = {}): Position => ({
   id: 1, mint: 'M', symbol: null, mode: 'paper', route: 'pump-curve', status: 'open', openedAt: NOW, closedAt: null,
   decimals: 6, costSol: 1, entryPriceSol: 1, initialTokens: 100, tokensHeld: 100, realizedSol: 0, ladderDone: 0,
-  peakPriceSol: 1, lastPriceSol: 1, lastActivityAt: NOW, closeReason: null, preset: null, lane: null, rules: null, ...o,
+  peakPriceSol: 1, lastPriceSol: 1, lastActivityAt: NOW, closeReason: null, preset: null, lane: null, versionId: null, rules: null, ...o,
 });
 
 describe('evaluateExit', () => {

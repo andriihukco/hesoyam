@@ -60,6 +60,8 @@ export interface Position {
   preset: string | null;
   /** Arena lane (preset id) that owns the position; null = the main strategy. */
   lane: string | null;
+  /** Strategy version whose rules opened the position (null only before migration). */
+  versionId: number | null;
   /** Exit rules in force when the position opened (null for positions from before this was stored). */
   rules: ExitRules | null;
 }

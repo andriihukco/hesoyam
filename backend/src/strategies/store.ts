@@ -84,6 +84,12 @@ export class StrategyStore {
     return this.latest(CUSTOM_ID)!;
   }
 
+  /** Version of the Custom strategy holding exactly these values (main strategy matching no preset). */
+  customFor(values: PresetValues): VersionRow {
+    this.ensureCustom();
+    return this.addVersion(CUSTOM_ID, values, 'user', 'custom settings');
+  }
+
   /** Version that was current when a position opened; the oldest one if the position predates all versions. */
   private versionAt(strategyId: string, ts: number): VersionRow | undefined {
     const r = (this.db.sql

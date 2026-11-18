@@ -5,7 +5,9 @@ import {
 } from './config/strategy.js';
 import type { Db } from './db/db.js';
 import { Rpc } from './lib/rpc.js';
-import { errMsg, log, memo, slug, startOfUtcDay } from './lib/util.js';
+import { errMsg, log, memo, startOfUtcDay } from './lib/util.js';
+import { StrategyStore } from './strategies/store.js';
+import type { PresetValues } from './config/strategy.js';
 import { LAMPORTS } from './market/pump.js';
 import { PriceFeed } from './market/priceFeed.js';
 import { PumpPortalWs } from './market/pumpportalWs.js';
@@ -36,6 +38,8 @@ interface Lane {
   name: string;
   strategy: Strategy;
   paper: PaperExecutor;
+  /** Strategy version new positions of this lane are stamped with. */
+  versionId: number | null;
 }
 
 interface Outcome {
@@ -97,9 +101,14 @@ export class Bot extends EventEmitter {
   activity: ActivityLine[] = [];
   chats: ChatLine[] = [];
   private chatSeq = 0;
+  readonly store: StrategyStore;
 
   constructor(private db: Db) {
     super();
+    this.store = new StrategyStore(db);
+    this.store.ensureBuiltIns(BUILT_IN_PRESETS);
+    this.store.migrateSavedPresets(db.getSetting<Preset[]>('presets') ?? []);
+    this.store.backfillPositionVersions();
     this.activity = db.activity({ limit: 200 });
     const saved = db.getSetting<Partial<Strategy>>('strategy');
     const merged = StrategySchema.safeParse({ ...DEFAULT_STRATEGY, ...saved });
@@ -388,7 +397,8 @@ export class Bot extends EventEmitter {
   // ---------- lanes ----------
 
   private mainLane(): Lane {
-    return { id: null, name: this.activePreset()?.name ?? 'Custom', strategy: this.strategy, paper: this.paper };
+    // versionId is resolved when a position opens (openPosition), not on every exit check.
+    return { id: null, name: this.activePreset()?.name ?? 'Custom', strategy: this.strategy, paper: this.paper, versionId: null };
   }
 
   private arenaPresets(): Preset[] {
@@ -409,7 +419,7 @@ export class Bot extends EventEmitter {
       this.laneWallets.set(p.id, wallet);
     }
     // Presets never carry infra/cost settings, so those always come from the main strategy.
-    return { id: p.id, name: p.name, strategy: { ...this.strategy, ...p.values }, paper: wallet };
+    return { id: p.id, name: p.name, strategy: { ...this.strategy, ...p.values }, paper: wallet, versionId: p.versionId ?? null };
   }
 
   /** Lanes that may open new positions now. */
@@ -483,6 +493,7 @@ export class Bot extends EventEmitter {
       realizedSol: 0, ladderDone: 0, peakPriceSol: fill.priceSol, lastPriceSol: fill.priceSol, lastActivityAt: now, closeReason: null,
       preset: lane.id ? lane.name : (this.activePreset()?.name ?? null),
       lane: lane.id,
+      versionId: lane.id ? lane.versionId : (this.activePreset()?.versionId ?? this.store.customFor(presetValues(this.strategy)).id),
       rules: {
         hardStopLossPct: lane.strategy.hardStopLossPct,
         trailingStopPct: lane.strategy.trailingStopPct,
@@ -678,14 +689,16 @@ export class Bot extends EventEmitter {
 
   // ---------- presets ----------
 
-  private savedPresets(): Preset[] {
-    // Presets saved before a setting existed get its default, so they still match and run the same.
-    const base = presetValues(DEFAULT_STRATEGY);
-    return (this.db.getSetting<Preset[]>('presets') ?? []).map((p) => ({ ...p, values: { ...base, ...p.values } }));
-  }
-
+  /** One preset per non-archived strategy, from its latest version. Settings added later get their default. */
   presets(): Preset[] {
-    return [...BUILT_IN_PRESETS, ...this.savedPresets()];
+    const base = presetValues(DEFAULT_STRATEGY);
+    return this.store
+      .list()
+      .filter((x) => x.id !== 'custom')
+      .map((x) => ({
+        id: x.id, name: x.name, description: x.description, builtIn: x.builtIn,
+        values: { ...base, ...x.latest.values }, versionId: x.latest.id, version: x.latest.version,
+      }));
   }
 
   /** The preset whose values equal the current strategy, if any. */
@@ -694,6 +707,7 @@ export class Bot extends EventEmitter {
     return this.presets().find((p) => canon(p.values) === cur);
   }
 
+  /** Alias kept for one release: applies the latest version of a strategy. */
   applyPreset(id: string) {
     const p = this.presets().find((x) => x.id === id);
     if (!p) throw new Error('preset not found');
@@ -701,25 +715,49 @@ export class Bot extends EventEmitter {
     this.note('info', `preset "${p.name}" applied`);
   }
 
-  savePreset(name: string, description = '') {
-    const n = name.trim().slice(0, 40);
-    if (!n) throw new Error('name required');
-    if (BUILT_IN_PRESETS.some((p) => p.name.toLowerCase() === n.toLowerCase())) throw new Error('name taken by a built-in preset');
-    const id = `user-${slug(n)}`;
-    const saved = this.savedPresets().filter((p) => p.id !== id);
-    if (saved.length >= 30) throw new Error('max 30 saved presets');
-    const preset: Preset = { id, name: n, description: description.slice(0, 160), builtIn: false, values: presetValues(this.strategy) };
-    this.db.setSetting('presets', [...saved, preset]);
-    this.note('info', `preset "${n}" saved`);
-    this.changed();
-    return preset;
+  applyVersion(versionId: number) {
+    const v = this.store.get(versionId);
+    if (!v) throw new Error('version not found');
+    this.setStrategy({ ...presetValues(DEFAULT_STRATEGY), ...v.values });
+    this.note('info', `strategy ${v.strategyId} v${v.version} applied`);
   }
 
-  deletePreset(id: string) {
-    const saved = this.savedPresets();
-    if (!saved.some((p) => p.id === id)) throw new Error('only saved presets can be deleted');
-    this.db.setSetting('presets', saved.filter((p) => p.id !== id));
+  /** Validate a partial set of preset values against the schema; infra/cost keys are dropped. */
+  private cleanValues(values: Partial<Strategy> | undefined): PresetValues {
+    return presetValues(StrategySchema.parse({ ...this.strategy, ...(values ?? {}) }));
+  }
+
+  createStrategy(name: string, description = '', values?: Partial<Strategy>) {
+    const v = this.store.create(name, description, this.cleanValues(values), 'user', 'created');
+    this.note('info', `strategy "${name.trim()}" created`);
     this.changed();
+    return v;
+  }
+
+  addStrategyVersion(strategyId: string, values: Partial<Strategy>, note = '') {
+    const prev = this.store.versions(strategyId)[0];
+    const v = this.store.addVersion(strategyId, this.cleanValues({ ...prev?.values, ...values }), 'user', note);
+    if (v.id !== prev?.id) this.note('info', `strategy ${strategyId} saved as v${v.version}`);
+    this.changed();
+    return { version: v, changed: v.id !== prev?.id };
+  }
+
+  archiveStrategy(strategyId: string) {
+    this.store.archive(strategyId);
+    this.changed();
+  }
+
+  strategyDetail(strategyId: string) {
+    const strategy = this.store.list(true).find((x) => x.id === strategyId);
+    if (!strategy) throw new Error('strategy not found');
+    const versions = this.store.versions(strategyId);
+    const ids = new Set(versions.map((v) => v.id));
+    return {
+      strategy,
+      versions,
+      stats: this.db.statsByVersion(this.mode).filter((x) => ids.has(x.versionId)),
+      curves: Object.fromEntries(versions.map((v) => [v.id, this.db.equityCurve(v.id, this.mode)])),
+    };
   }
 
   setKillSwitch(on: boolean) {
@@ -805,6 +843,15 @@ export class Bot extends EventEmitter {
       presets: this.presets(),
       activePresetId: this.activePreset()?.id ?? null,
       presetStats: this.db.statsByPreset(this.mode),
+      versionStats: this.db.statsByVersion(this.mode),
+      hardLimits: {
+        agentLiveEnabled: env.AGENT_LIVE_ENABLED,
+        maxBuySol: env.LIVE_MAX_BUY_SOL ?? null,
+        maxDailyLossSol: env.LIVE_MAX_DAILY_LOSS_SOL ?? null,
+        maxOpen: env.LIVE_MAX_OPEN ?? null,
+        canaryBuySol: env.LIVE_CANARY_BUY_SOL ?? null,
+        rollbackLossSol: env.LIVE_ROLLBACK_LOSS_SOL ?? null,
+      },
       arena: { ...this.arena, minTrades: ARENA_MIN_TRADES, lanes: this.arenaBoard() },
       positions: this.db.openPositions(),
       closed: this.db.closedPositions(30),

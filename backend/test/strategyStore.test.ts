@@ -138,4 +138,14 @@ describe('StrategyStore', () => {
     expect(store.get(v.id)!.stage).toBe('retired');
     expect(store.get(v.id)!.values).toEqual(base);
   });
+
+  it('customFor reuses the latest Custom version or adds one when values differ', () => {
+    const { store } = fresh();
+    const a = store.customFor(base);
+    expect(store.customFor({ ...base }).id).toBe(a.id);
+    const b = store.customFor({ ...base, minChannels: 3 });
+    expect(b.version).toBe(a.version + 1);
+    expect(b.strategyId).toBe('custom');
+    expect(store.list().some((s) => s.id === 'custom')).toBe(true);
+  });
 });

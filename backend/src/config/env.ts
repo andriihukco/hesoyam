@@ -42,6 +42,15 @@ const EnvSchema = z.object({
   RUGCHECK_API_URL: z.string().default('https://api.rugcheck.xyz/v1'),
   DEXSCREENER_API_URL: z.string().default('https://api.dexscreener.com'),
   LIVE_TRADING_ENABLED: bool(false),
+  // Hard limits for agents and live trading. Only settable here; agents and the UI cannot change them.
+  AGENT_LIVE_ENABLED: bool(false),
+  LIVE_MAX_BUY_SOL: opt(z.coerce.number().positive()),
+  LIVE_MAX_DAILY_LOSS_SOL: opt(z.coerce.number().positive()),
+  LIVE_MAX_OPEN: opt(z.coerce.number().int().positive()),
+  LIVE_CANARY_BUY_SOL: opt(z.coerce.number().positive()),
+  LIVE_ROLLBACK_LOSS_SOL: opt(z.coerce.number().positive()),
+  GEMINI_API_KEY: opt(z.string()),
+  GEMINI_MODEL: z.string().default(''),
 });
 
 const parsed = EnvSchema.parse(process.env);
