@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { HolderReport } from '../holders/score.js';
-import type { Mention, Position, SignalRecord, Trade } from '../types.js';
+import type { Mention, Position, Route, SignalRecord, Trade } from '../types.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS signal_facts (
 CREATE TABLE IF NOT EXISTS replay_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, version_id INTEGER NOT NULL, from_ts INTEGER NOT NULL, to_ts INTEGER NOT NULL,
   split TEXT NOT NULL, metrics TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS equity_snapshots (
+  ts INTEGER NOT NULL, mode TEXT NOT NULL, cash_sol REAL NOT NULL, open_sol REAL NOT NULL, total_sol REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS equity_snapshots_mode_ts ON equity_snapshots(mode, ts);
 CREATE TABLE IF NOT EXISTS agent_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, agent TEXT NOT NULL, kind TEXT NOT NULL,
   version_id INTEGER, detail TEXT NOT NULL);
@@ -57,6 +60,11 @@ CREATE TABLE IF NOT EXISTS holder_reports (
 CREATE TABLE IF NOT EXISTS rug_wallets (
   wallet TEXT NOT NULL, mint TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (wallet, mint));
 `;
+
+export interface ClosedRow {
+  id: number; mint: string; symbol: string | null; route: string; versionId: number | null; cost: number; realized: number;
+  ladder: number; opened: number; closed: number; closeReason: string | null;
+}
 
 export interface ActivityRow { id: number; ts: number; level: 'info' | 'warn' | 'trade'; text: string }
 
@@ -123,6 +131,8 @@ const toPosition = (r: Row): Position => ({
   preset: r.preset ?? null,
   lane: r.lane ?? null,
   versionId: r.version_id ?? null,
+  followUntil: r.follow_until ?? null,
+  followEnd: r.follow_end ?? null,
   rules: r.rules ? JSON.parse(r.rules) : null,
 });
 
@@ -151,6 +161,8 @@ export class Db {
     if (!cols.includes('lane')) this.sql.exec('ALTER TABLE positions ADD COLUMN lane TEXT');
     if (!cols.includes('rules')) this.sql.exec('ALTER TABLE positions ADD COLUMN rules TEXT');
     if (!cols.includes('version_id')) this.sql.exec('ALTER TABLE positions ADD COLUMN version_id INTEGER');
+    if (!cols.includes('follow_until')) this.sql.exec('ALTER TABLE positions ADD COLUMN follow_until INTEGER');
+    if (!cols.includes('follow_end')) this.sql.exec('ALTER TABLE positions ADD COLUMN follow_end TEXT');
   }
 
   getSetting<T>(key: string): T | undefined {
@@ -239,6 +251,42 @@ export class Db {
   position(id: number): Position | undefined {
     const r = this.sql.prepare('SELECT * FROM positions WHERE id = ?').get(id) as Row | undefined;
     return r ? toPosition(r) : undefined;
+  }
+
+  addEquitySnapshot(s: { ts: number; mode: string; cashSol: number; openSol: number; totalSol: number }) {
+    this.sql.prepare('INSERT INTO equity_snapshots(ts, mode, cash_sol, open_sol, total_sol) VALUES(?,?,?,?,?)')
+      .run(s.ts, s.mode, s.cashSol, s.openSol, s.totalSol);
+  }
+
+  equitySnapshots(mode: string, sinceTs: number): { ts: number; cashSol: number; openSol: number; totalSol: number }[] {
+    return (this.sql.prepare('SELECT ts, cash_sol, open_sol, total_sol FROM equity_snapshots WHERE mode = ? AND ts >= ? ORDER BY ts')
+      .all(mode, sinceTs) as Row[]).map((r) => ({ ts: r.ts, cashSol: r.cash_sol, openSol: r.open_sol, totalSol: r.total_sol }));
+  }
+
+  closedSince(mode: string, sinceTs: number): ClosedRow[] {
+    return (this.sql.prepare(
+      `SELECT id, mint, symbol, route, version_id, cost_sol, realized_sol, ladder_done, opened_at, closed_at, close_reason
+       FROM positions WHERE status = 'closed' AND mode = ? AND closed_at >= ? ORDER BY closed_at, id`,
+    ).all(mode, sinceTs) as Row[]).map((r) => ({
+      id: r.id, mint: r.mint, symbol: r.symbol, route: r.route, versionId: r.version_id ?? null, cost: r.cost_sol,
+      realized: r.realized_sol, ladder: r.ladder_done, opened: r.opened_at, closed: r.closed_at, closeReason: r.close_reason,
+    }));
+  }
+
+  setFollowUntil(positionId: number, ts: number) {
+    this.sql.prepare('UPDATE positions SET follow_until = ? WHERE id = ?').run(ts, positionId);
+  }
+
+  setFollowEnd(positionId: number, reason: 'rugged' | 'stale' | '24h', _ts: number) {
+    this.sql.prepare('UPDATE positions SET follow_end = ? WHERE id = ?').run(reason, positionId);
+  }
+
+  /** Closed positions still to follow after a restart: closed since `sinceTs` and not ended. */
+  followCandidates(sinceTs: number): { id: number; mint: string; route: Route; closedAt: number; lastPrice: number }[] {
+    return (this.sql.prepare(
+      `SELECT id, mint, route, closed_at, last_price FROM positions
+       WHERE status = 'closed' AND follow_end IS NULL AND closed_at >= ? ORDER BY closed_at`,
+    ).all(sinceTs) as Row[]).map((r) => ({ id: r.id, mint: r.mint, route: r.route, closedAt: r.closed_at, lastPrice: r.last_price }));
   }
 
   addTick(positionId: number, ts: number, price: number) {

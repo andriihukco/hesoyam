@@ -62,6 +62,9 @@ export interface Position {
   lane: string | null;
   /** Strategy version whose rules opened the position (null only before migration). */
   versionId: number | null;
+  /** Post-exit tracking: until when, and why it ended (null while tracking or before close). */
+  followUntil: number | null;
+  followEnd: 'rugged' | 'stale' | '24h' | null;
   /** Exit rules in force when the position opened (null for positions from before this was stored). */
   rules: ExitRules | null;
 }
