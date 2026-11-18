@@ -91,7 +91,8 @@ Service → Volumes → mount path `/app/data`. Default `DB_PATH=data/1mbot.sqli
 
 - `HOST=0.0.0.0`
 - `PORT=${{PORT}}` (Railway's reference variable; or leave unset, Railway injects `PORT`)
-- `DASHBOARD_TOKEN=<generate a long random string>`
+- `DASHBOARD_TOKEN=<openssl rand -hex 32>` (bootstrap token; after Settings → Security → Rotate token now, the rotated token replaces it and this one stops working)
+- Lock-out recovery: set `DASHBOARD_TOKEN_RESET=1`, redeploy, log in with `DASHBOARD_TOKEN`, rotate again, then delete `DASHBOARD_TOKEN_RESET` (while it is set, every restart clears the rotated token)
 - `TG_API_ID`, `TG_API_HASH`, `TG_SESSION`, `TG_FOLDER_LINKS`, `TG_CHANNELS`, `TG_AUTO_JOIN` copied from local `.env`
 - `RPC_ENDPOINTS`, `PUMPPORTAL_WS_URL`, `PUMPPORTAL_API_KEY`, `JUPITER_API_URL`, `JUPITER_API_KEY`, `RUGCHECK_API_URL`, `DEXSCREENER_API_URL` as needed
 - `LIVE_TRADING_ENABLED=false`

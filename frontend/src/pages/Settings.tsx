@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { call } from '../lib/api';
+import { call, setToken } from '../lib/api';
 import type { HardLimits, Snapshot, Strategy } from '../lib/types';
 import { Group, Segmented } from '../components/ui';
 import { SliderRow, type SliderSpec } from '../components/SliderRow';
@@ -46,6 +46,25 @@ export function Settings({ s, onError }: { s: Snapshot; onError: (e: string) => 
     await call('POST', '/api/paper/reset').catch((e) => onError((e as Error).message));
   };
   const hl = s.hardLimits;
+  const [shown, setShown] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const rotate = async () => {
+    if (!(await ask({
+      title: 'Rotate the dashboard token?',
+      body: 'A new token is created and the current one stops working right away. Dashboards open now switch automatically; other devices need the new token.',
+      confirm: 'Rotate', danger: true,
+    }))) return;
+    try {
+      const r = await call<{ token: string }>('POST', '/api/token/rotate');
+      setToken(r.token);
+      setCopied(false);
+      setShown(r.token);
+    } catch (e) {
+      onError((e as Error).message);
+    }
+  };
+  const copy = () => void navigator.clipboard?.writeText(shown ?? '').then(() => setCopied(true));
+  const ts = s.tokenStatus;
 
   return (
     <div className="flex flex-col gap-5">
@@ -90,6 +109,27 @@ export function Settings({ s, onError }: { s: Snapshot; onError: (e: string) => 
             </div>
           );
         })}
+      </Group>
+
+      <Group title="Security" footer="New token = 32 random bytes as hex (like openssl rand -hex 32). Only its hash is stored. Locked out? Set DASHBOARD_TOKEN_RESET=1, restart, log in with DASHBOARD_TOKEN, then remove the flag.">
+        <div className="row-sep flex items-center justify-between px-4 py-2.5 text-[15px]">
+          Dashboard token
+          <span className="text-label-2">
+            {ts.source === 'rotated' && ts.rotatedAt ? `rotated ${new Date(ts.rotatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
+              : ts.source === 'env' ? 'from .env' : 'none (open access)'}
+          </span>
+        </div>
+        {shown && (
+          <div className="row-sep space-y-2 px-4 py-3">
+            <p className="text-[13px] text-label-2">New token. Shown once: save it in your password manager for other devices. This browser already uses it.</p>
+            <div className="flex items-center gap-2">
+              <code className="mono min-w-0 flex-1 break-all rounded-lg bg-fill px-2 py-1.5 text-[12px]">{shown}</code>
+              <button type="button" className="btn btn-tinted btn-sm shrink-0" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+            </div>
+            <button type="button" className="text-[13px] text-tint" onClick={() => setShown(null)}>Hide</button>
+          </div>
+        )}
+        <button type="button" className="row-sep w-full px-4 py-2.5 text-left text-[15px] text-neg" onClick={() => void rotate()}>Rotate token now</button>
       </Group>
 
       <Group title="Danger zone">

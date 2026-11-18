@@ -45,6 +45,8 @@ export function useSnapshot() {
       ws.onmessage = (e) => {
         const m = JSON.parse(e.data);
         if (m.type === 'state') setSnap(m.data);
+        // Token rotated (here or on another open dashboard): keep working with the new one.
+        if (m.type === 'token' && typeof m.token === 'string') setToken(m.token);
       };
       ws.onclose = () => {
         setOnline(false);
