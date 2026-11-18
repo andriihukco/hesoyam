@@ -97,7 +97,7 @@ export async function holderCheck(rpc: Rpc, mint: string, f: MintFacts, s: Strat
   };
 }
 
-async function loadHolders(rpc: Rpc, mint: string): Promise<{ holders: Holder[]; via: string } | { error: string }> {
+export async function loadHolders(rpc: Rpc, mint: string): Promise<{ holders: Holder[]; via: string } | { error: string }> {
   try {
     return { holders: await holdersFromRpc(rpc, mint), via: 'rpc' };
   } catch (rpcErr) {

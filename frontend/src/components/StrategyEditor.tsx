@@ -6,7 +6,7 @@ import { SliderRow, type SliderSpec } from './SliderRow';
 
 type NumKey = { [K in keyof Strategy]: Strategy[K] extends number ? K : never }[keyof Strategy];
 type Spec = SliderSpec & { key: NumKey };
-type ToggleKey = 'requireMintAuthorityDisabled' | 'requireFreezeAuthorityDisabled' | 'rugcheckEnabled';
+type ToggleKey = 'requireMintAuthorityDisabled' | 'requireFreezeAuthorityDisabled' | 'rugcheckEnabled' | 'holderAnalysisEnabled';
 
 const S = {
   minChannels: { key: 'minChannels', label: 'Min channels', min: 1, max: 6, step: 1, unit: '' },
@@ -15,6 +15,7 @@ const S = {
   maxSignalAgeSec: { key: 'maxSignalAgeSec', label: 'Max age of first call', min: 0, max: 1800, step: 30, unit: 's', zeroOff: true },
   maxRunupFromFirstPct: { key: 'maxRunupFromFirstPct', label: 'Max run-up since first call', min: 0, max: 500, step: 10, unit: '%', zeroOff: true },
   maxTop10HolderPct: { key: 'maxTop10HolderPct', label: 'Max top-10 holders', min: 5, max: 80, step: 1, unit: '%' },
+  maxHolderRisk: { key: 'maxHolderRisk', label: 'Max holder risk', min: 0, max: 100, step: 5, unit: '' },
   momentumObserveSec: { key: 'momentumObserveSec', label: 'Watch momentum for', min: 0, max: 120, step: 1, unit: 's' },
   minTrades60s: { key: 'minTrades60s', label: 'Min trades / 60s', min: 0, max: 100, step: 1, unit: '' },
   minBuyVolumeSol60s: { key: 'minBuyVolumeSol60s', label: 'Min buy volume / 60s', min: 0, max: 50, step: 0.5, unit: 'SOL' },
@@ -33,6 +34,7 @@ const toggles: { key: ToggleKey; label: string }[] = [
   { key: 'requireMintAuthorityDisabled', label: 'Require mint authority off' },
   { key: 'requireFreezeAuthorityDisabled', label: 'Require freeze authority off' },
   { key: 'rugcheckEnabled', label: 'RugCheck second opinion' },
+  { key: 'holderAnalysisEnabled', label: 'Holder wallet analysis (Helius)' },
 ];
 
 const extraLabels: Record<string, string> = {
@@ -87,7 +89,7 @@ export function StrategyEditor({ initial, onSave, onCancel, busy }: {
             <Switch label={t.label} checked={d[t.key]} onChange={(v) => set(t.key, v)} />
           </div>
         ))}
-        {row(S.maxTop10HolderPct)}{row(S.momentumObserveSec)}{row(S.minTrades60s)}{row(S.minBuyVolumeSol60s)}{row(S.minGraduatedVolumeUsd5m)}
+        {row(S.maxTop10HolderPct)}{row(S.maxHolderRisk)}{row(S.momentumObserveSec)}{row(S.minTrades60s)}{row(S.minBuyVolumeSol60s)}{row(S.minGraduatedVolumeUsd5m)}
       </Group>
 
       <Group title="4 · Entry">{row(S.buyAmountSol)}{row(S.maxSlippagePct)}</Group>

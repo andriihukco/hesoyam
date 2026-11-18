@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import Fastify, { type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
-import { ROOT_DIR } from '../config/env.js';
+import { env, ROOT_DIR } from '../config/env.js';
 import type { Bot } from '../bot.js';
 import { errMsg, log } from '../lib/util.js';
 import type { DashboardToken } from './token.js';
@@ -77,6 +77,12 @@ export async function buildServer(bot: Bot, token: DashboardToken) {
   app.post('/api/telegram/folders', async (req) => run(() => bot.addTelegramFolder(String((req.body as { link?: string })?.link ?? ''))));
   app.delete('/api/telegram/folders', async (req) => run(() => bot.removeTelegramFolder(String((req.body as { link?: string })?.link ?? ''))));
   app.get('/api/coin/:mint', async (req) => run(() => bot.coinInfo((req.params as { mint: string }).mint)));
+  app.get('/api/holders/:mint', async (req) => {
+    const refresh = (req.query as Record<string, string | undefined>)?.refresh === '1';
+    return run(() => bot.holderReport((req.params as { mint: string }).mint, refresh));
+  });
+  app.post('/api/holders/:mint/summary', async (req) => run(() => bot.holderSummary((req.params as { mint: string }).mint)));
+  app.get('/api/health', async () => ({ ok: true, db: env.DB_PATH, volume: process.env.RAILWAY_VOLUME_MOUNT_PATH ?? null }));
   app.post('/api/paper/reset', async () => run(() => bot.resetPaper()));
   // Rotate the dashboard token: the old one stops working now. Open dashboards (already authorized
   // sockets) receive the new token so they keep working; closed devices must enter it again.

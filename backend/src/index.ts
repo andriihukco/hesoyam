@@ -10,6 +10,13 @@ if (env.HOST !== '127.0.0.1' && env.HOST !== 'localhost' && !env.DASHBOARD_TOKEN
   process.exit(1);
 }
 
+// On Railway without a volume the SQLite file lives in the container and is lost on every deploy.
+if (process.env.RAILWAY_ENVIRONMENT && !process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+  log('boot', `WARNING: no Railway volume mounted; ${env.DB_PATH} (activity log, trades, holder reports) will be wiped on redeploy. Mount a volume at /app/data.`);
+} else if (process.env.RAILWAY_VOLUME_MOUNT_PATH && !env.DB_PATH.startsWith(process.env.RAILWAY_VOLUME_MOUNT_PATH)) {
+  log('boot', `WARNING: DB_PATH ${env.DB_PATH} is outside the volume at ${process.env.RAILWAY_VOLUME_MOUNT_PATH}`);
+}
+
 const db = new Db(env.DB_PATH);
 const bot = new Bot(db);
 const token = new DashboardToken(db, { envToken: env.DASHBOARD_TOKEN, reset: env.DASHBOARD_TOKEN_RESET });

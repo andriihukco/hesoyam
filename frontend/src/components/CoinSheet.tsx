@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ago, call, short } from '../lib/api';
 import type { Signal, Snapshot } from '../lib/types';
 import { PositionDetailSheet } from './PositionDetail';
+import { HolderReportCard } from './HolderReport';
 
 interface CoinInfo { signal: Signal | null; positionId: number | null }
 
@@ -99,6 +100,8 @@ export function CoinSheet({ mint, s, onClose, onError }: { mint: string; s: Snap
               ) : <p className="text-label-2">All checks passed.</p>}
             </div>
           ) : info && <p className="text-[13px] text-label-2">The bot has no signal record for this token yet.</p>}
+
+          <HolderReportCard mint={mint} now={s.serverTime} />
         </div>
       </div>
     </div>

@@ -3,6 +3,7 @@ import { call, dur, pct, px, short, sol, tone } from '../lib/api';
 import type { PositionDetail, Snapshot } from '../lib/types';
 import { PriceChart } from './PriceChart';
 import { useConfirm } from './ConfirmSheet';
+import { HolderReportCard } from './HolderReport';
 
 /** Bottom sheet on phones, centred dialog on desktop: chart, numbers and every fill of one position. */
 export function PositionDetailSheet({ id, s, onClose, onError }: { id: number; s: Snapshot; onClose: () => void; onError: (e: string) => void }) {
@@ -155,6 +156,8 @@ function Body({ d, s, onClose, onError }: { d: PositionDetail; s: Snapshot; onCl
             })}
           </div>
         </div>
+
+        <HolderReportCard mint={p.mint} now={s.serverTime} />
 
         <div className="flex flex-wrap gap-x-4 gap-y-1 pb-2 text-[13px]">
           <a className="text-tint" href={`https://dexscreener.com/solana/${p.mint}`} target="_blank" rel="noreferrer">DexScreener ↗</a>

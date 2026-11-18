@@ -10,6 +10,7 @@
     "tg:login": "NODE_OPTIONS=--no-warnings tsx scripts/tgLogin.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.10.0",
     "@fastify/static": "^10.1.10",
     "@fastify/websocket": "^11.3.7",
     "@solana/spl-token": "^0.4.15",

@@ -13,6 +13,7 @@ const bounds: Record<NumKey, Bound> = {
   maxSignalAgeSec: { min: 0, max: 86400, int: true },
   maxRunupFromFirstPct: { min: 0, max: 100000 },
   maxTop10HolderPct: { min: 1, max: 100 },
+  maxHolderRisk: { min: 0, max: 100 },
   momentumObserveSec: { min: 0, max: 120, int: true },
   minTrades60s: { min: 0, max: 10000, int: true },
   minBuyVolumeSol60s: { min: 0, max: 100000 },

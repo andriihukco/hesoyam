@@ -5,7 +5,7 @@ import type { Strategy } from './types';
 const S: Strategy = {
   buyAmountSol: 0.1, maxSlippagePct: 15, minChannels: 2, windowSec: 30, socialMentions: 'off', minScore: 70,
   maxSignalAgeSec: 0, maxRunupFromFirstPct: 0, routes: 'any', maxTop10HolderPct: 30, requireMintAuthorityDisabled: true,
-  requireFreezeAuthorityDisabled: true, rugcheckEnabled: true, momentumObserveSec: 10, minTrades60s: 8, minBuyVolumeSol60s: 3,
+  requireFreezeAuthorityDisabled: true, rugcheckEnabled: true, holderAnalysisEnabled: true, maxHolderRisk: 60, momentumObserveSec: 10, minTrades60s: 8, minBuyVolumeSol60s: 3,
   minGraduatedVolumeUsd5m: 5000, takeProfitLadder: [{ roiPct: 50, sellPct: 50 }, { roiPct: 100, sellPct: 25 }],
   trailingStopPct: 15, hardStopLossPct: 20, stagnationSec: 180, markStaleSec: 20, maxOpenPositions: 5, maxDailyLossSol: 2,
   priorityFeeSol: 0.0005, jitoTipSol: 0.0005, pumpFeeBps: 100, simulatedLatencyMs: 400, rpc: 'public',
